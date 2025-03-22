@@ -59,7 +59,7 @@ fn main() {
 fn run_mqtt_client(sender: Arc<Sender<DataPoint>>) -> Result<(), Box<dyn std::error::Error>> {
     let mut mqtt_options = MqttOptions::new(
         "sensor-client-01",
-        "10.90.129.114",
+        "192.168.1.104",
         1883
     );
     mqtt_options
@@ -126,47 +126,41 @@ impl SensorDataApp {
 
 impl eframe::App for SensorDataApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // 接收数据到临时缓冲区，限制单次最多处理100条防止阻塞
         let mut count = 0;
-        // 接收数据到临时缓冲区
-        loop {
-            if count >= 20 {
-                break;
-            }
-
-            match self.data_receiver.try_recv() {
-                Ok(data) => {
-                    self.pending_data.push(data);
-                    count += 1;
-                }
-                Err(_) => break,
+        while let Ok(data) = self.data_receiver.try_recv() {
+            self.pending_data.push(data);
+            count += 1;
+            if count >= 100 {
+                break; // 防止处理过多数据导致UI卡顿
             }
         }
 
-        // 每次处理五帧数据
-        while self.pending_data.len() >= 5 {
-            let batch = self.pending_data.drain(..5).collect::<Vec<_>>();
-            for data in batch {
-                self.waveform_plot.add_data(data.x, data.y, data.z);
-                let timestamp = data.timestamp;
+        // 处理所有待处理数据，无需等待满五帧
+        let batch = self.pending_data.drain(..).collect::<Vec<_>>();
+        for data in batch {
+            self.waveform_plot.add_data(data.x, data.y, data.z);
+            let timestamp = data.timestamp;
 
-                // 更新数据缓冲区
-                self.data_buffer.push_back(data);
-                let cutoff = timestamp - 3000;
-                while let Some(front) = self.data_buffer.front() {
-                    if front.timestamp < cutoff {
-                        self.data_buffer.pop_front();
-                    } else {
-                        break;
-                    }
+            // 更新数据缓冲区
+            self.data_buffer.push_back(data);
+            let cutoff = timestamp - 3000;
+            // 优化：假设数据按时间顺序到达，只需检查队首
+            while let Some(front) = self.data_buffer.front() {
+                if front.timestamp < cutoff {
+                    self.data_buffer.pop_front();
+                } else {
+                    break;
                 }
             }
         }
-        // ctx.request_repaint_after(Duration::from_millis(25));
-        // ctx.request_repaint();
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.waveform_plot.ui(ui);
         });
+
+        // 控制刷新频率（约40FPS）
+        ctx.request_repaint_after(std::time::Duration::from_millis(25));
     }
 }
 
