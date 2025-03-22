@@ -48,16 +48,26 @@ impl WaveformPlot {
     }
 
     fn plot_axis(&self, ui: &mut egui::Ui, title: &str, buffer: &[f64], color: Color32) {
-        let (ordered_data, data_count) = if self.full {
-            // 当缓冲区满时，数据按时间顺序排序
-            let mut data = Vec::with_capacity(self.capacity);
-            data.extend_from_slice(&buffer[self.write_index..]);
-            data.extend_from_slice(&buffer[..self.write_index]);
-            (data, self.capacity)
+        // 如果未满则使用 [0, write_index)，满了则使用整个缓冲区，保持自然顺序
+        let (data, data_count) = if self.full {
+            (buffer, self.capacity)
         } else {
-            // 当缓冲区未满时，只取有效数据
-            (buffer[..self.write_index].to_vec(), self.write_index)
+            (&buffer[..self.write_index], self.write_index)
         };
+
+        if data.is_empty() {
+            return;
+        }
+
+        // 计算动态Y轴范围
+        let (y_min, y_max) = data.iter().fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(min, max), &val| (min.min(val), max.max(val))
+        );
+
+        let range = (y_max - y_min).max(0.1);
+        let y_min = y_min - range * 0.05;
+        let y_max = y_max + range * 0.05;
 
         Plot::new(title)
             .height(150.0)
@@ -68,20 +78,16 @@ impl WaveformPlot {
             .allow_drag(false)
             .allow_zoom(false)
             .show(ui, |plot_ui| {
-                // 计算动态范围
-                let y_min = ordered_data.iter().fold(f64::INFINITY, |a, &b| a.min(b));
-                let y_max = ordered_data.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-                let y_margin = (y_max - y_min).abs().max(0.1) * 0.05;
-                let y_min = y_min - y_margin;
-                let y_max = y_max + y_margin;
+                let total_duration = 5.0; // 总时间窗口 5 秒
+                let dt = total_duration / (self.capacity as f64 - 1.0);
 
-                // 生成时间轴（最近的5秒数据）
-                let points: Vec<[f64; 2]> = ordered_data
+                // 根据缓冲区的自然顺序计算每个点的时间：索引0 => 0秒，索引capacity-1 => 5秒
+                let points: Vec<[f64; 2]> = data
                     .iter()
                     .enumerate()
                     .map(|(i, &y)| {
-                        let x_position = 5.0 - (data_count - i) as f64 / self.capacity as f64 * 5.0;
-                        [x_position, y]
+                        let time = i as f64 * dt;
+                        [time, y]
                     })
                     .collect();
 
@@ -93,4 +99,5 @@ impl WaveformPlot {
                 plot_ui.line(Line::new(PlotPoints::from(points)).color(color).width(1.0));
             });
     }
+
 }

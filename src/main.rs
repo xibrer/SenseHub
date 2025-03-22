@@ -109,58 +109,31 @@ fn parse_sensor_data(payload: &[u8]) -> Result<DataPoint, String> {
 struct SensorDataApp {
     waveform_plot: plotter::WaveformPlot,
     data_receiver: Receiver<DataPoint>,
-    data_buffer: VecDeque<DataPoint>,
-    pending_data: Vec<DataPoint>, // 新增临时缓冲区
+    // 移除原有的data_buffer和pending_data
 }
 
 impl SensorDataApp {
     pub fn new(data_receiver: Receiver<DataPoint>) -> Self {
         SensorDataApp {
-            waveform_plot: plotter::WaveformPlot::new(393),
+            waveform_plot: plotter::WaveformPlot::new(393), // 5秒容量自动计算
             data_receiver,
-            data_buffer: VecDeque::new(),
-            pending_data: Vec::new(), // 初始化缓冲区
         }
     }
 }
 
 impl eframe::App for SensorDataApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
-        // 接收数据到临时缓冲区，限制单次最多处理100条防止阻塞
-        let mut count = 0;
+        // 直接批量处理所有可用数据
         while let Ok(data) = self.data_receiver.try_recv() {
-            self.pending_data.push(data);
-            count += 1;
-            if count >= 100 {
-                break; // 防止处理过多数据导致UI卡顿
-            }
-        }
-
-        // 处理所有待处理数据，无需等待满五帧
-        let batch = self.pending_data.drain(..).collect::<Vec<_>>();
-        for data in batch {
             self.waveform_plot.add_data(data.x, data.y, data.z);
-            let timestamp = data.timestamp;
-
-            // 更新数据缓冲区
-            self.data_buffer.push_back(data);
-            let cutoff = timestamp - 3000;
-            // 优化：假设数据按时间顺序到达，只需检查队首
-            while let Some(front) = self.data_buffer.front() {
-                if front.timestamp < cutoff {
-                    self.data_buffer.pop_front();
-                } else {
-                    break;
-                }
-            }
         }
 
+        // 保持界面渲染逻辑
         egui::CentralPanel::default().show(ctx, |ui| {
             self.waveform_plot.ui(ui);
         });
 
-        // 控制刷新频率（约40FPS）
-        ctx.request_repaint_after(std::time::Duration::from_millis(25));
+        ctx.request_repaint_after(Duration::from_millis(25));
     }
 }
 
