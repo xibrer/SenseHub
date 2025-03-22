@@ -43,7 +43,7 @@ fn main() {
     };
 
     if let Err(e) = eframe::run_native(
-        "Sensor Waveform Viewer",
+        "Sensor Data Viewer",
         options,
         Box::new(|cc| Ok(Box::new(SensorDataApp::new(data_receiver)))),
     ) {
