@@ -1,0 +1,66 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version-check:
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check-version.outputs.should-build }}
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2  # 获取最近2次提交历史
+    
+    - name: Extract versions
+      id: check-version
+      run: |
+        # 获取当前版本
+        CURRENT_VERSION=$(grep '^version =' Cargo.toml | cut -d '"' -f2)
+        echo "Current version: $CURRENT_VERSION"
+
+        # 获取前一个提交的版本
+        if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          # 对于PR事件，比较基础分支的版本
+          BASE_REF=${{ github.base_ref }}
+          git fetch origin $BASE_REF --depth=1
+          PREV_VERSION=$(git show origin/$BASE_REF:Cargo.toml 2>/dev/null | grep '^version =' | cut -d '"' -f2 || true)
+        else
+          # 对于push事件，比较前一次提交
+          PREV_VERSION=$(git show HEAD^:Cargo.toml 2>/dev/null | grep '^version =' | cut -d '"' -f2 || true)
+        fi
+
+        echo "Previous version: $PREV_VERSION"
+
+        # 设置条件标志
+        if [ -z "$PREV_VERSION" ] || [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
+          echo "::set-output name=should-build::true"
+        else
+          echo "::set-output name=should-build::false"
+        fi
+
+  build:
+    needs: version-check
+    if: ${{ needs.version-check.outputs.should-build == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
