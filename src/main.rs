@@ -1,6 +1,7 @@
 mod logger;
 mod plotter;
-
+use dotenv::dotenv;
+use std::env;
 use std::error;
 use rumqttc::{Client, Event, LastWill, MqttOptions, Packet, Publish, QoS};
 use serde_json::Value;
@@ -57,11 +58,24 @@ fn main() {
 }
 
 fn run_mqtt_client(sender: Arc<Sender<DataPoint>>) -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok(); // 加载 .env 文件
+
+    let mqtt_user = env::var("MQTT_USER")?;
+    let mqtt_pass = env::var("MQTT_PASS")?;
+    let mqtt_host = env::var("MQTT_HOST").unwrap_or_else(|_| "localhost".into());
+    let mqtt_port = env::var("MQTT_PORT")
+        .unwrap_or_else(|_| "1883".into())
+        .parse::<u16>()?;
+
     let mut mqtt_options = MqttOptions::new(
         "sensor-client-01",
-        "192.168.1.104",
-        1883
+        mqtt_host,
+        mqtt_port
     );
+
+    mqtt_options
+        .set_credentials(mqtt_user, mqtt_pass);
+
     mqtt_options
         .set_keep_alive(Duration::from_secs(5))
         .set_last_will(LastWill::new(

@@ -43,9 +43,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         initMqttClient()
     }
 
-    private val mqttServerUri = "tcp://192.168.1.104:1883" // 局域网服务器IP
-    private val mqttUsername = ""    // 留空如果无需认证
-    private val mqttPassword = ""    // 留空如果无需认证
+    // 后期改成注册模式
+    private val mqttServerUri = "tcp://111.229.193.95:1883" // 局域网服务器IP
+    private val mqttUsername = "admin"    // 留空如果无需认证
+    private val mqttPassword = "20250322"    // 留空如果无需认证
     private val mqttTopic = "sensors"
     private fun initMqttClient() {
         try {
