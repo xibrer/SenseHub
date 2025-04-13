@@ -1,5 +1,6 @@
 package com.example.androidclient
 
+
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -26,7 +27,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var accelerometer: Sensor? = null
     private lateinit var tvData: TextView
     private var mqttClient: MqttAsyncClient? = null
-
+    private lateinit var waveformView: WaveformView
     // MQTT配置参数
 
 
@@ -35,6 +36,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         tvData = findViewById(R.id.tvSensorData)
+        waveformView = findViewById(R.id.waveform)
         // 初始化传感器系统服务
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -142,6 +144,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             """.trimIndent().format(Locale.US, x, y, z)
             tvData.text = dataText
 
+            waveformView.addData(x, y, z)
             // 发送到MQTT
             sendToMqtt(x, y, z)
         }

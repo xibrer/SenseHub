@@ -1,0 +1,40 @@
+
+---
+description: writing code
+globs: *.rs
+alwaysApply: false
+---
+
+
+# Coding Style
+
+Always prefer simple solutions
+Avoid having files over 200-300 lines of code. Refactor at that point
+Use double quotes for strings in Rust
+Use format! macro for string formatting with clear variable names (except in performance-critical sections which should be marked with "NOTE:" comments)
+Follow rustfmt formatting with 120 character line length
+Each sentence in documentation comments (///) should be on a new line
+Use clippy for linting and code checks
+Prefer match expressions over complex if-else chains
+Follow Rust API Guidelines for public interfaces
+Use meaningful type names and avoid single-letter type parameters
+
+# Workflow
+
+Never overwrite configuration files without first asking and confirming
+Avoid duplication of code by creating shared modules and using proper abstraction
+Maintain strict adherence to semantic versioning for crate changes
+When fixing issues, add regression tests to cargo test suite
+Format code using cargo fmt before submitting changes
+Use pre-commit hooks with rustfmt and clippy checks
+For performance optimizations, include benchmark comparisons
+Keep dependencies minimal - justify any new crate additions
+Use cargo clippy -- -D warnings in CI pipelines
+Document unsafe blocks thoroughly when absolutely necessary
+Prefer ? operator over explicit unwrap() in fallible code
+When adding features, include examples in documentation comments
+For documentation changes, ensure each sentence is on a new line in /// comments
+Validate all lifetimes and ownership patterns during code review
+Mark TODO items with // TODO: comments instead of code annotations
+Use #[derive(Debug)] for all public structs/enums
+Prefer crates.io stable versions over git dependencies

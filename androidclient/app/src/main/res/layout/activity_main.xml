@@ -13,7 +13,11 @@
         android:text="Waiting for sensor data..."
         android:textSize="18sp" />
 
-
+    <com.example.androidclient.WaveformView
+        android:id="@+id/waveform"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:background="@android:color/black"/>
 
 
 </LinearLayout>

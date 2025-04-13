@@ -123,7 +123,6 @@ fn parse_sensor_data(payload: &[u8]) -> Result<DataPoint, String> {
 struct SensorDataApp {
     waveform_plot: plotter::WaveformPlot,
     data_receiver: Receiver<DataPoint>,
-    // 移除原有的data_buffer和pending_data
 }
 
 impl SensorDataApp {
