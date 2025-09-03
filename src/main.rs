@@ -1,5 +1,6 @@
 mod logger;
 mod plotter;
+mod utils;
 use dotenv::dotenv;
 use std::env;
 use std::error;
@@ -14,6 +15,7 @@ use std::thread;
 use std::time::Duration;
 use std::collections::VecDeque;
 use base64::{Engine as _, engine::general_purpose};
+use utils::format_timestamp;
 
 #[derive(serde::Deserialize)]
 struct DataPoint {
@@ -183,23 +185,39 @@ fn parse_audio_data(payload: &[u8]) -> Result<AudioData, String> {
         .map_err(|e| format!("Audio JSON parsing error: {}", e))
 }
 
+
 struct SensorDataApp {
     waveform_plot: plotter::WaveformPlot,
     data_receiver: Receiver<DataPoint>,
     audio_receiver: Receiver<AudioData>,
     is_collecting: bool,
     audio_level: f32,
+    // 基于timestamp的校准
+    is_calibrating: bool,
+    calibration_data: Vec<DataPoint>,
+    calibration_start_time: Option<std::time::Instant>,
+    calculated_sample_rate: Option<f64>,
 }
 
 impl SensorDataApp {
     pub fn new(data_receiver: Receiver<DataPoint>, audio_receiver: Receiver<AudioData>) -> Self {
-        SensorDataApp {
-            waveform_plot: plotter::WaveformPlot::new(393), // 5秒容量自动计算
+        let mut app = SensorDataApp {
+            waveform_plot: plotter::WaveformPlot::new(393), // 初始采样率
             data_receiver,
             audio_receiver,
-            is_collecting: true, // 默认开始采集
+            is_collecting: false, // 默认不开始采集，先校准
             audio_level: 0.0,
-        }
+            // 校准相关初始化
+            is_calibrating: true, // 启动时自动开始校准
+            calibration_data: Vec::new(),
+            calibration_start_time: None, // 等待第一个样本到达时开始计时
+            calculated_sample_rate: None,
+        };
+        
+        // 打印启动信息
+        info!("应用启动，等待数据到达开始校准...");
+        
+        app
     }
 }
 
@@ -216,31 +234,48 @@ impl eframe::App for SensorDataApp {
                 ui.horizontal(|ui| {
                     ui.label("Status:");
                     
-                    let status_text = if self.is_collecting { "Collecting" } else { "Stopped" };
-                    let status_color = if self.is_collecting { 
-                        egui::Color32::from_rgb(0, 150, 0) 
-                    } else { 
-                        egui::Color32::from_rgb(150, 0, 0) 
+                    let (status_text, status_color) = if self.is_calibrating {
+                        ("Calibrating", egui::Color32::from_rgb(255, 165, 0)) // 橙色
+                    } else if self.is_collecting {
+                        ("Collecting", egui::Color32::from_rgb(0, 150, 0)) // 绿色
+                    } else {
+                        ("Stopped", egui::Color32::from_rgb(150, 0, 0)) // 红色
                     };
                     
                     ui.colored_label(status_color, status_text);
                     
                     ui.separator();
                     
-                    if self.is_collecting {
-                        if ui.button("Stop").clicked() {
-                            self.is_collecting = false;
+                    // 状态显示
+                    if self.is_calibrating {
+                        if let Some(start_time) = self.calibration_start_time {
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            let progress = (elapsed / 5.0).min(1.0);
+                            ui.label(format!("auto calibrating... {:.1}s / 5.0s ({} samples)", 
+                                            elapsed, self.calibration_data.len()));
+                            
+                            // 进度条
+                            let progress_bar = egui::ProgressBar::new(progress as f32)
+                                .desired_width(150.0);
+                            ui.add(progress_bar);
+                        } else {
+                            ui.label("waiting for data...");
                         }
+                    } else if self.is_collecting {
+                        ui.label("data collecting...");
                     } else {
-                        if ui.button("Start").clicked() {
-                            self.is_collecting = true;
-                        }
+                        ui.label("waiting for data...");
                     }
                     
                     ui.separator();
                     
-                    // 显示一些统计信息
-                    ui.label("Sample Rate: 393 Hz");
+                    // 显示采样率信息
+                    if let Some(rate) = self.calculated_sample_rate {
+                        ui.label(format!("Sample Rate: {:.1} Hz", rate));
+                    } else {
+                        ui.label("Sample Rate: Not calibrated");
+                    }
+                    
                     ui.separator();
                     ui.label("Window: 5.0s");
                     ui.separator();
@@ -249,17 +284,40 @@ impl eframe::App for SensorDataApp {
                 ui.add_space(5.0);
             });
         
-        // 只有在采集状态时才处理数据
-        if self.is_collecting {
+        // 处理数据：校准、采集或丢弃
+        if self.is_calibrating {
+            // 校准模式：收集timestamp数据
             while let Ok(data) = self.data_receiver.try_recv() {
-                self.waveform_plot.add_data(data.x, data.y, data.z);
+                self.process_calibration_data(data);
+            }
+            
+            // 检查是否达到5秒
+            if let Some(start_time) = self.calibration_start_time {
+                let elapsed = start_time.elapsed();
+                if elapsed.as_secs_f64() >= 5.0 && !self.calibration_data.is_empty() {
+                    self.calculate_sample_rate_from_timestamps();
+                }
+            }
+            
+            // 校准期间丢弃音频数据
+            while let Ok(_) = self.audio_receiver.try_recv() {
+                // 丢弃音频数据
+            }
+        } else if self.is_collecting {
+            // 正常采集模式
+            while let Ok(data) = self.data_receiver.try_recv() {
+                info!("ACC data - x: {:.3}, y: {:.3}, z: {:.3}, time: {}", 
+                      data.x, data.y, data.z, format_timestamp(data.timestamp));
+                self.waveform_plot.add_data(data.x, data.y, data.z, data.timestamp);
             }
             // 处理音频数据
             while let Ok(audio_data) = self.audio_receiver.try_recv() {
+                info!("Audio data - samples: {}, time: {}", 
+                      audio_data.samples, format_timestamp(audio_data.timestamp));
                 self.process_audio_data(&audio_data);
             }
         } else {
-            // 停止采集时，清空接收缓冲区但不添加到图表
+            // 停止状态：清空接收缓冲区
             while let Ok(_) = self.data_receiver.try_recv() {
                 // 丢弃数据
             }
@@ -273,11 +331,66 @@ impl eframe::App for SensorDataApp {
             self.waveform_plot.ui(ui);
         });
 
-        ctx.request_repaint_after(Duration::from_millis(15));
+        ctx.request_repaint_after(Duration::from_millis(25));
     }
 }
 
 impl SensorDataApp {
+    fn start_calibration(&mut self) {
+        self.is_calibrating = true;
+        self.calibration_start_time = Some(std::time::Instant::now());
+        self.calibration_data.clear();
+        self.calculated_sample_rate = None;
+    }
+    
+    fn process_calibration_data(&mut self, data: DataPoint) {
+        // 如果这是第一个样本，开始计时
+        if self.calibration_start_time.is_none() {
+            self.calibration_start_time = Some(std::time::Instant::now());
+            info!("收到第一个样本，开始校准计时");
+        }
+        
+        self.calibration_data.push(data);
+    }
+    
+    fn calculate_sample_rate_from_timestamps(&mut self) {
+        if self.calibration_data.len() < 2 {
+            self.is_calibrating = false;
+            return;
+        }
+        
+        // 排序数据点以确保时间戳顺序正确
+        self.calibration_data.sort_by_key(|d| d.timestamp);
+        
+        let first_timestamp = self.calibration_data.first().unwrap().timestamp;
+        let last_timestamp = self.calibration_data.last().unwrap().timestamp;
+        let sample_count = self.calibration_data.len();
+        
+        // 计算时间跨度（毫秒转秒）
+        let time_span_ms = last_timestamp - first_timestamp;
+        let time_span_s = time_span_ms as f64 / 1000.0;
+        
+        if time_span_s <= 0.0 {
+            self.is_calibrating = false;
+            return;
+        }
+        
+        // 计算采样率：(样本数 - 1) / 时间跨度
+        let sample_rate = (sample_count - 1) as f64 / time_span_s;
+        self.calculated_sample_rate = Some(sample_rate);
+        
+        info!("校准完成! 采样率: {:.1} Hz，自动开始数据采集", sample_rate);
+        
+        // 使用校准后的采样率重新创建波形绘制器
+        self.waveform_plot = plotter::WaveformPlot::new(sample_rate as usize);
+        
+        // 结束校准并自动开始采集
+        self.is_calibrating = false;
+        self.is_collecting = true; // 自动开始采集数据
+        self.calibration_start_time = None;
+        self.calibration_data.clear();
+    }
+    
     fn process_audio_data(&mut self, audio_data: &AudioData) {
         // 解码Base64音频数据
         match general_purpose::STANDARD.decode(&audio_data.audio_data) {
@@ -291,16 +404,8 @@ impl SensorDataApp {
                 
                 // 将音频样本添加到波形绘制器
                 if !samples.is_empty() {
-                    // 为了避免绘图过于密集，我们可以对样本进行下采样
-                    // Android发送的是44.1kHz，我们下采样到1kHz用于显示
-                    let downsample_factor = 44; // 44100 / 1000 ≈ 44
-                    let downsampled: Vec<i16> = samples
-                        .iter()
-                        .step_by(downsample_factor)
-                        .cloned()
-                        .collect();
-                    
-                    self.waveform_plot.add_audio_samples(&downsampled);
+                    // 直接使用原始音频样本，不进行下采样
+                    self.waveform_plot.add_audio_samples(&samples, audio_data.timestamp);
                     
                     // 计算音频级别 (RMS) 用于状态栏显示
                     let sum_squares: f64 = samples.iter()
@@ -308,9 +413,9 @@ impl SensorDataApp {
                         .sum();
                     let rms = (sum_squares / samples.len() as f64).sqrt();
                     
-                    // 归一化到0-1范围，并应用简单的低通滤波
+                    // 归一化到0-1范围，不应用滤波
                     let normalized_level = (rms / 32768.0) as f32;
-                    self.audio_level = self.audio_level * 0.8 + normalized_level * 0.2;
+                    self.audio_level = normalized_level;
                 }
             }
             Err(e) => {

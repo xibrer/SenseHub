@@ -20,9 +20,9 @@ impl WaveformPlot {
         let window_seconds = 5.0;
         let capacity = (window_seconds * sample_rate as f64) as usize;
         
-        // 音频缓冲区 - 使用更高的采样率来显示音频波形细节
+        // 音频缓冲区 - 直接使用16kHz音频数据，不下采样
         let audio_window_seconds = 5.0; // 显示5秒的音频数据
-        let audio_sample_rate = 1000; // 1kHz显示采样率，足够显示音频波形
+        let audio_sample_rate = 16000; // 16kHz完整采样率
         let audio_capacity = (audio_window_seconds * audio_sample_rate as f64) as usize;
 
         Self {
@@ -52,6 +52,8 @@ impl WaveformPlot {
     }
     
     pub fn add_audio_samples(&mut self, samples: &[i16]) {
+        // 控制音频数据的添加速率，使其与时间轴同步
+        // 16kHz音频数据需要按照实际时间间隔添加到缓冲区
         for &sample in samples {
             // 将i16样本转换为归一化的f64值 (-1.0 到 1.0)
             let normalized_sample = sample as f64 / 32768.0;
@@ -143,9 +145,15 @@ impl WaveformPlot {
             return;
         }
 
-        // 音频数据的Y轴范围固定为 -1.0 到 1.0
-        let y_min = -1.0;
-        let y_max = 1.0;
+        // 计算音频数据的动态Y轴范围
+        let (y_min, y_max) = data.iter().fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(min, max), &val| (min.min(val), max.max(val))
+        );
+
+        let range = (y_max - y_min).max(0.1);
+        let y_min = y_min - range * 0.05;
+        let y_max = y_max + range * 0.05;
 
         Plot::new(title)
             .height(150.0)

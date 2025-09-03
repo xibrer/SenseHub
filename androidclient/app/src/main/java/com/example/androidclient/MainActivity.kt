@@ -1,17 +1,26 @@
 package com.example.androidclient
 
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
+import org.json.JSONObject
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttToken
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient
@@ -28,6 +37,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var tvData: TextView
     private var mqttClient: MqttAsyncClient? = null
     private lateinit var waveformView: WaveformView
+    
+    // 音频录制相关
+    private var audioRecord: AudioRecord? = null
+    private var isRecording = false
+    private val sampleRate = 16000
+    private val channelConfig = AudioFormat.CHANNEL_IN_MONO
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    private val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+    
+    companion object {
+        private const val RECORD_AUDIO_PERMISSION_REQUEST = 1001
+    }
+    
     // MQTT配置参数
 
 
@@ -41,6 +63,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
+        // 检查音频录制权限
+        checkAudioPermission()
+
         // 初始化MQTT客户端
         initMqttClient()
     }
@@ -50,6 +75,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private val mqttUsername = "admin"    // 留空如果无需认证
     private val mqttPassword = "20250322"    // 留空如果无需认证
     private val mqttTopic = "sensors"
+    private val audioTopic = "audio"
     private fun initMqttClient() {
         try {
             val clientId = "Android_${Build.MODEL}_${System.currentTimeMillis()}"
@@ -91,9 +117,165 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private fun startSensorAfterConnection() {
         runOnUiThread {
             accelerometer?.let {
-                sensorManager.registerListener(this, it, 25)
+                sensorManager.registerListener(this, it, 2500)
+            }
+            // 开始音频录制
+            startAudioRecording()
+        }
+    }
+    
+    private fun checkAudioPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                RECORD_AUDIO_PERMISSION_REQUEST
+            )
+        }
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            RECORD_AUDIO_PERMISSION_REQUEST -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Log.d("AUDIO", "Audio recording permission granted")
+                } else {
+                    Toast.makeText(this, "需要录音权限才能使用音频功能", Toast.LENGTH_LONG).show()
+                }
             }
         }
+    }
+    
+    private fun startAudioRecording() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+            != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+        
+        try {
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            )
+            
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e("AUDIO", "AudioRecord initialization failed")
+                return
+            }
+            
+            audioRecord?.startRecording()
+            isRecording = true
+            
+            // 在后台线程中录制音频
+            thread {
+                recordAudio()
+            }
+            
+            Log.d("AUDIO", "Audio recording started")
+        } catch (e: Exception) {
+            Log.e("AUDIO", "Failed to start audio recording", e)
+        }
+    }
+    
+    private fun recordAudio() {
+        val audioBuffer = ShortArray(bufferSize / 2) // 16-bit PCM
+        
+        while (isRecording && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+            val bytesRead = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
+            
+            if (bytesRead > 0) {
+                val audioSamples = audioBuffer.copyOf(bytesRead)
+                
+                // 将音频数据添加到波形视图（不进行下采样）
+                runOnUiThread {
+                    waveformView.addAudioData(audioSamples)
+                }
+                
+                // 发送音频数据到MQTT
+                sendAudioToMqtt(audioSamples)
+            }
+        }
+    }
+    
+    private fun sendAudioToMqtt(audioData: ShortArray) {
+        if (mqttClient?.isConnected != true) {
+            return
+        }
+        
+        try {
+            // 检查音频数据是否有效
+            if (audioData.isEmpty()) {
+                Log.w("AUDIO", "Empty audio data, skipping")
+                return
+            }
+
+            
+            // 将音频数据转换为Base64编码
+            val byteArray = ByteArray(audioData.size * 2)
+            for (i in audioData.indices) {
+                val value = audioData[i].toInt()
+                byteArray[i * 2] = (value and 0xFF).toByte()
+                byteArray[i * 2 + 1] = (value shr 8 and 0xFF).toByte()
+            }
+            
+            var base64Audio = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+
+            // 强制清理所有可能的控制字符
+            base64Audio = base64Audio.filter { char ->
+                char.code >= 32 || char == ' '
+            }
+            
+            val timestamp = System.currentTimeMillis()
+            
+            // 使用JSON库构造JSON，更安全
+            val jsonObject = JSONObject().apply {
+                put("audio_data", base64Audio)
+                put("sample_rate", sampleRate)
+                put("channels", 1)
+                put("format", "pcm_16bit")
+                put("samples", audioData.size)
+                put("timestamp", timestamp)
+            }
+            
+            val payload = jsonObject.toString()
+            
+            // 验证最终payload
+            val finalPayload = payload.toByteArray(Charsets.UTF_8)
+            Log.d("AUDIO", "Sending audio payload size: ${finalPayload.size}, samples: ${audioData.size}")
+            
+            mqttClient?.publish(
+                audioTopic,
+                finalPayload,
+                0,
+                false
+            )
+            
+        } catch (e: Exception) {
+            Log.e("AUDIO", "Failed to send audio data", e)
+        }
+    }
+    
+    private fun stopAudioRecording() {
+        isRecording = false
+        audioRecord?.apply {
+            if (recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                stop()
+            }
+            if (state == AudioRecord.STATE_INITIALIZED) {
+                release()
+            }
+        }
+        audioRecord = null
+        Log.d("AUDIO", "Audio recording stopped")
     }
 
     private fun showError(message: String) {
@@ -114,6 +296,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         super.onPause()
         // 释放传感器监听
         sensorManager.unregisterListener(this)
+        // 停止音频录制
+        stopAudioRecording()
         // 断开MQTT连接
         try {
             mqttClient?.disconnect()?.actionCallback = object : IMqttActionListener {
