@@ -56,6 +56,8 @@ fn main() {
 
     let options = eframe::NativeOptions {
         vsync: true,
+        hardware_acceleration: eframe::HardwareAcceleration::Preferred, // 硬件加速优先模式
+        renderer: eframe::Renderer::Glow, // 使用Glow渲染器获得更好性能
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
             .with_resizable(true),
@@ -191,7 +193,6 @@ struct SensorDataApp {
     data_receiver: Receiver<DataPoint>,
     audio_receiver: Receiver<AudioData>,
     is_collecting: bool,
-    audio_level: f32,
     // 基于timestamp的校准
     is_calibrating: bool,
     calibration_data: Vec<DataPoint>,
@@ -206,7 +207,6 @@ impl SensorDataApp {
             data_receiver,
             audio_receiver,
             is_collecting: false, // 默认不开始采集，先校准
-            audio_level: 0.0,
             // 校准相关初始化
             is_calibrating: true, // 启动时自动开始校准
             calibration_data: Vec::new(),
@@ -278,8 +278,6 @@ impl eframe::App for SensorDataApp {
                     
                     ui.separator();
                     ui.label("Window: 5.0s");
-                    ui.separator();
-                    ui.label(format!("Audio Level: {:.2}", self.audio_level));
                 });
                 ui.add_space(5.0);
             });
@@ -308,7 +306,7 @@ impl eframe::App for SensorDataApp {
             while let Ok(data) = self.data_receiver.try_recv() {
                 info!("ACC data - x: {:.3}, y: {:.3}, z: {:.3}, time: {}", 
                       data.x, data.y, data.z, format_timestamp(data.timestamp));
-                self.waveform_plot.add_data(data.x, data.y, data.z, data.timestamp);
+                self.waveform_plot.add_data(data.x, data.y, data.z);
             }
             // 处理音频数据
             while let Ok(audio_data) = self.audio_receiver.try_recv() {
@@ -331,7 +329,7 @@ impl eframe::App for SensorDataApp {
             self.waveform_plot.ui(ui);
         });
 
-        ctx.request_repaint_after(Duration::from_millis(25));
+        ctx.request_repaint_after(Duration::from_millis(150));
     }
 }
 
@@ -405,17 +403,7 @@ impl SensorDataApp {
                 // 将音频样本添加到波形绘制器
                 if !samples.is_empty() {
                     // 直接使用原始音频样本，不进行下采样
-                    self.waveform_plot.add_audio_samples(&samples, audio_data.timestamp);
-                    
-                    // 计算音频级别 (RMS) 用于状态栏显示
-                    let sum_squares: f64 = samples.iter()
-                        .map(|&sample| (sample as f64).powi(2))
-                        .sum();
-                    let rms = (sum_squares / samples.len() as f64).sqrt();
-                    
-                    // 归一化到0-1范围，不应用滤波
-                    let normalized_level = (rms / 32768.0) as f32;
-                    self.audio_level = normalized_level;
+                    self.waveform_plot.add_audio_samples(&samples);
                 }
             }
             Err(e) => {

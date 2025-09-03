@@ -6,48 +6,46 @@ pub struct WaveformPlot {
     buffer_y: Vec<f64>,
     buffer_z: Vec<f64>,
     audio_buffer: Vec<f64>,
-    capacity: usize,
-    write_index: usize,
-    full: bool,
+    max_samples: usize,
+    window_duration: f64, // 窗口持续时间（秒）
     // 音频相关
-    audio_capacity: usize,
-    audio_write_index: usize,
-    audio_full: bool,
+    audio_max_samples: usize,
+    audio_window_duration: f64,
 }
 
 impl WaveformPlot {
     pub fn new(sample_rate: usize) -> Self {
         let window_seconds = 5.0;
-        let capacity = (window_seconds * sample_rate as f64) as usize;
+        let max_samples = (window_seconds * sample_rate as f64) as usize;
         
         // 音频缓冲区 - 直接使用16kHz音频数据，不下采样
         let audio_window_seconds = 5.0; // 显示5秒的音频数据
         let audio_sample_rate = 16000; // 16kHz完整采样率
-        let audio_capacity = (audio_window_seconds * audio_sample_rate as f64) as usize;
+        let audio_max_samples = (audio_window_seconds * audio_sample_rate as f64) as usize;
 
         Self {
-            buffer_x: vec![0.0; capacity],
-            buffer_y: vec![0.0; capacity],
-            buffer_z: vec![0.0; capacity],
-            audio_buffer: vec![0.0; audio_capacity],
-            capacity,
-            write_index: 0,
-            full: false,
-            audio_capacity,
-            audio_write_index: 0,
-            audio_full: false,
+            buffer_x: Vec::new(),
+            buffer_y: Vec::new(),
+            buffer_z: Vec::new(),
+            audio_buffer: Vec::new(),
+            max_samples,
+            window_duration: window_seconds,
+            audio_max_samples,
+            audio_window_duration: audio_window_seconds,
         }
     }
 
     pub fn add_data(&mut self, x: f64, y: f64, z: f64) {
-        self.buffer_x[self.write_index] = x;
-        self.buffer_y[self.write_index] = y;
-        self.buffer_z[self.write_index] = z;
+        // 将新数据添加到缓冲区末尾
+        self.buffer_x.push(x);
+        self.buffer_y.push(y);
+        self.buffer_z.push(z);
 
-        self.write_index += 1;
-        if self.write_index >= self.capacity {
-            self.write_index = 0;
-            self.full = true;
+        // 如果超过最大样本数，移除最旧的数据（从前面移除）
+        if self.buffer_x.len() > self.max_samples {
+            self.buffer_x.remove(0);
+            self.buffer_y.remove(0);
+            self.buffer_z.remove(0);
         }
     }
     
@@ -57,12 +55,11 @@ impl WaveformPlot {
         for &sample in samples {
             // 将i16样本转换为归一化的f64值 (-1.0 到 1.0)
             let normalized_sample = sample as f64 / 32768.0;
-            self.audio_buffer[self.audio_write_index] = normalized_sample;
+            self.audio_buffer.push(normalized_sample);
             
-            self.audio_write_index += 1;
-            if self.audio_write_index >= self.audio_capacity {
-                self.audio_write_index = 0;
-                self.audio_full = true;
+            // 如果超过最大样本数，移除最旧的数据（从前面移除）
+            if self.audio_buffer.len() > self.audio_max_samples {
+                self.audio_buffer.remove(0);
             }
         }
     }
@@ -81,19 +78,12 @@ impl WaveformPlot {
     }
 
     fn plot_axis(&self, ui: &mut egui::Ui, title: &str, buffer: &[f64], color: Color32) {
-        // 如果未满则使用 [0, write_index)，满了则使用整个缓冲区，保持自然顺序
-        let (data, data_count) = if self.full {
-            (buffer, self.capacity)
-        } else {
-            (&buffer[..self.write_index], self.write_index)
-        };
-
-        if data.is_empty() {
+        if buffer.is_empty() {
             return;
         }
 
         // 计算动态Y轴范围
-        let (y_min, y_max) = data.iter().fold(
+        let (y_min, y_max) = buffer.iter().fold(
             (f64::INFINITY, f64::NEG_INFINITY),
             |(min, max), &val| (min.min(val), max.max(val))
         );
@@ -111,22 +101,29 @@ impl WaveformPlot {
             .allow_drag(false)
             .allow_zoom(false)
             .show(ui, |plot_ui| {
-                let total_duration = 5.0; // 总时间窗口 5 秒
-                let dt = total_duration / (self.capacity as f64 - 1.0);
+                // 计算时间点：最新的数据在右侧（时间=0），最旧的数据在左侧（时间=-window_duration）
+                let data_len = buffer.len();
+                if data_len == 0 {
+                    return;
+                }
 
-                // 根据缓冲区的自然顺序计算每个点的时间：索引0 => 0秒，索引capacity-1 => 5秒
-                let points: Vec<[f64; 2]> = data
+                let dt = self.window_duration / (self.max_samples as f64);
+
+                // 从右到左的时间轴：最新数据时间为0，向左递减
+                let points: Vec<[f64; 2]> = buffer
                     .iter()
                     .enumerate()
                     .map(|(i, &y)| {
-                        let time = i as f64 * dt;
+                        // 索引0是最旧的数据，索引data_len-1是最新的数据
+                        let time_offset = (data_len - 1 - i) as f64 * dt;
+                        let time = -time_offset; // 负时间表示过去
                         [time, y]
                     })
                     .collect();
 
                 plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-                    [0.0, y_min],
-                    [5.0, y_max],
+                    [-self.window_duration, y_min],
+                    [0.0, y_max],
                 ));
 
                 plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));
@@ -134,19 +131,12 @@ impl WaveformPlot {
     }
     
     fn plot_audio(&self, ui: &mut egui::Ui, title: &str, buffer: &[f64], color: Color32) {
-        // 音频数据处理逻辑与传感器数据类似，但使用音频特定的参数
-        let (data, _data_count) = if self.audio_full {
-            (buffer, self.audio_capacity)
-        } else {
-            (&buffer[..self.audio_write_index], self.audio_write_index)
-        };
-
-        if data.is_empty() {
+        if buffer.is_empty() {
             return;
         }
 
         // 计算音频数据的动态Y轴范围
-        let (y_min, y_max) = data.iter().fold(
+        let (y_min, y_max) = buffer.iter().fold(
             (f64::INFINITY, f64::NEG_INFINITY),
             |(min, max), &val| (min.min(val), max.max(val))
         );
@@ -164,22 +154,29 @@ impl WaveformPlot {
             .allow_drag(false)
             .allow_zoom(false)
             .show(ui, |plot_ui| {
-                let total_duration = 5.0; // 音频显示窗口 5 秒
-                let dt = total_duration / (self.audio_capacity as f64 - 1.0);
+                // 计算时间点：最新的数据在右侧（时间=0），最旧的数据在左侧（时间=-window_duration）
+                let data_len = buffer.len();
+                if data_len == 0 {
+                    return;
+                }
 
-                // 根据缓冲区的自然顺序计算每个点的时间
-                let points: Vec<[f64; 2]> = data
+                let dt = self.audio_window_duration / (self.audio_max_samples as f64);
+
+                // 从右到左的时间轴：最新数据时间为0，向左递减
+                let points: Vec<[f64; 2]> = buffer
                     .iter()
                     .enumerate()
                     .map(|(i, &y)| {
-                        let time = i as f64 * dt;
+                        // 索引0是最旧的数据，索引data_len-1是最新的数据
+                        let time_offset = (data_len - 1 - i) as f64 * dt;
+                        let time = -time_offset; // 负时间表示过去
                         [time, y]
                     })
                     .collect();
 
                 plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-                    [0.0, y_min],
-                    [5.0, y_max],
+                    [-self.audio_window_duration, y_min],
+                    [0.0, y_max],
                 ));
 
                 plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));
