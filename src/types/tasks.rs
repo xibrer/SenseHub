@@ -7,6 +7,8 @@ pub enum DatabaseTask {
         accelerometer_data: Vec<DataPoint>,
         audio_data: Vec<f64>,
         audio_metadata: Option<AudioData>,
+        audio_start_timestamp: Option<i64>,
+        audio_end_timestamp: Option<i64>,
         session_id: String,
     },
     Export {

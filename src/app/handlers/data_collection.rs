@@ -1,4 +1,3 @@
-use log::info;
 use base64::{Engine as _, engine::general_purpose};
 use crate::app::sensor_app::SensorDataApp;
 
@@ -17,6 +16,7 @@ impl DataCollectionHandler {
         while let Ok(audio_data) = app.state.channels.audio_receiver.try_recv() {
             // info!("Audio data - samples: {}, time: {}", 
             //       audio_data.samples, format_timestamp(audio_data.timestamp));
+            
             app.state.database.last_audio_metadata = Some(audio_data.clone());
             Self::process_audio_data(app, &audio_data);
         }
@@ -36,7 +36,7 @@ impl DataCollectionHandler {
                 // 将音频样本添加到波形绘制器
                 if !samples.is_empty() {
                     // 直接使用原始音频样本，不进行下采样
-                    app.state.waveform_plot.add_audio_samples(&samples);
+                    app.state.waveform_plot.add_audio_samples(&samples, audio_data.timestamp, audio_data.sample_rate);
                 }
             }
             Err(e) => {

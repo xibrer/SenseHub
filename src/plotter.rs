@@ -9,6 +9,7 @@ pub struct WaveformPlot {
     buffer_z: VecDeque<f64>,
     buffer_timestamp: VecDeque<i64>, // 添加时间戳缓冲区
     audio_buffer: VecDeque<f64>,
+    audio_timestamps: VecDeque<i64>, // 添加音频时间戳缓冲区
     max_samples: usize,
     window_duration: f64, // 窗口持续时间（秒）
     // 音频相关
@@ -32,6 +33,7 @@ impl WaveformPlot {
             buffer_z: VecDeque::with_capacity(max_samples),
             buffer_timestamp: VecDeque::with_capacity(max_samples), // 初始化时间戳缓冲区
             audio_buffer: VecDeque::with_capacity(audio_max_samples),
+            audio_timestamps: VecDeque::with_capacity(audio_max_samples), // 初始化音频时间戳缓冲区
             max_samples,
             window_duration: window_seconds,
             audio_max_samples,
@@ -55,19 +57,27 @@ impl WaveformPlot {
         }
     }
     
-    pub fn add_audio_samples(&mut self, samples: &[i16]) {
+    pub fn add_audio_samples(&mut self, samples: &[i16], base_timestamp: i64, sample_rate: u32) {
         // 批量转换音频样本为归一化的f64值 (-1.0 到 1.0)
         let normalized_samples: Vec<f64> = samples
             .iter()
             .map(|&sample| sample as f64 / 32768.0)
             .collect();
         
+        // 计算每个样本的时间戳
+        let sample_interval_ms = 1000.0 / sample_rate as f64;
+        let timestamps: Vec<i64> = (0..samples.len())
+            .map(|i| base_timestamp + (i as f64 * sample_interval_ms) as i64)
+            .collect();
+        
         // 批量添加到缓冲区末尾
         self.audio_buffer.extend(normalized_samples);
+        self.audio_timestamps.extend(timestamps);
         
         // 如果超过最大样本数，批量移除最旧的数据 - O(1)操作
         while self.audio_buffer.len() > self.audio_max_samples {
             self.audio_buffer.pop_front();
+            self.audio_timestamps.pop_front();
         }
     }
 
@@ -208,6 +218,21 @@ impl WaveformPlot {
 
     pub fn get_current_audio_data(&self) -> Vec<f64> {
         self.audio_buffer.iter().cloned().collect()
+    }
+
+    pub fn get_current_audio_data_with_timestamps(&self) -> Vec<(f64, i64)> {
+        self.audio_buffer.iter()
+            .zip(self.audio_timestamps.iter())
+            .map(|(&sample, &timestamp)| (sample, timestamp))
+            .collect()
+    }
+
+    pub fn get_current_audio_first_timestamp(&self) -> Option<i64> {
+        self.audio_timestamps.front().copied()
+    }
+
+    pub fn get_current_audio_last_timestamp(&self) -> Option<i64> {
+        self.audio_timestamps.back().copied()
     }
 
 }

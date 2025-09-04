@@ -55,7 +55,8 @@ impl DatabaseManager {
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS audio_data (
                 id INTEGER PRIMARY KEY DEFAULT nextval('audio_data_seq'),
-                timestamp_ms BIGINT,
+                start_timestamp_ms BIGINT,
+                end_timestamp_ms BIGINT,
                 sample_rate INTEGER,
                 channels TINYINT,
                 format VARCHAR,
@@ -99,7 +100,7 @@ impl DatabaseManager {
         Ok(count)
     }
 
-    pub fn save_audio_data(&self, audio_samples: &[f64], audio_metadata: Option<&AudioData>, session_id: &str) -> DuckResult<usize> {
+    pub fn save_audio_data(&self, audio_samples: &[f64], audio_metadata: Option<&AudioData>, session_id: &str, start_timestamp_ms: Option<i64>, end_timestamp_ms: Option<i64>) -> DuckResult<usize> {
         if audio_samples.is_empty() {
             warn!("No audio data to save");
             return Ok(0);
@@ -112,7 +113,7 @@ impl DatabaseManager {
             audio_bytes.extend_from_slice(&sample_i16.to_le_bytes());
         }
 
-        let (timestamp_ms, sample_rate, channels, format) = if let Some(metadata) = audio_metadata {
+        let (default_timestamp_ms, sample_rate, channels, format) = if let Some(metadata) = audio_metadata {
             (
                 metadata.timestamp,
                 metadata.sample_rate as i32,
@@ -128,13 +129,18 @@ impl DatabaseManager {
             )
         };
 
+        // 使用提供的开始和结束时间戳，如果没有提供则使用默认时间戳
+        let start_timestamp = start_timestamp_ms.unwrap_or(default_timestamp_ms);
+        let end_timestamp = end_timestamp_ms.unwrap_or(default_timestamp_ms);
+
         let mut stmt = self.conn.prepare(
-            "INSERT INTO audio_data (timestamp_ms, sample_rate, channels, format, samples_count, audio_blob, session_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO audio_data (start_timestamp_ms, end_timestamp_ms, sample_rate, channels, format, samples_count, audio_blob, session_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )?;
         
         stmt.execute(duckdb::params![
-            timestamp_ms,
+            start_timestamp,
+            end_timestamp,
             sample_rate,
             channels,
             format,
@@ -210,21 +216,22 @@ impl DatabaseManager {
     }
 
     // 获取指定session的音频数据
-    pub fn get_audio_data_by_session(&self, session_id: &str) -> DuckResult<Vec<(i64, Vec<f64>, u32, u8, String)>> {
+    pub fn get_audio_data_by_session(&self, session_id: &str) -> DuckResult<Vec<(i64, i64, Vec<f64>, u32, u8, String)>> {
         let mut data = Vec::new();
         
         let mut stmt = self.conn.prepare(
-            "SELECT timestamp_ms, audio_blob, sample_rate, channels, format FROM audio_data 
+            "SELECT start_timestamp_ms, end_timestamp_ms, audio_blob, sample_rate, channels, format FROM audio_data 
              WHERE session_id = ? 
-             ORDER BY timestamp_ms"
+             ORDER BY start_timestamp_ms"
         )?;
         
         let rows = stmt.query_map([session_id], |row| {
-            let timestamp: i64 = row.get(0)?;
-            let audio_blob: Vec<u8> = row.get(1)?;
-            let sample_rate: i32 = row.get(2)?;
-            let channels: i32 = row.get(3)?;
-            let format: String = row.get(4)?;
+            let start_timestamp: i64 = row.get(0)?;
+            let end_timestamp: i64 = row.get(1)?;
+            let audio_blob: Vec<u8> = row.get(2)?;
+            let sample_rate: i32 = row.get(3)?;
+            let channels: i32 = row.get(4)?;
+            let format: String = row.get(5)?;
             
             // 将音频字节数据转换回f64样本
             let mut samples = Vec::new();
@@ -234,7 +241,7 @@ impl DatabaseManager {
                 samples.push(sample_f64);
             }
             
-            Ok((timestamp, samples, sample_rate as u32, channels as u8, format))
+            Ok((start_timestamp, end_timestamp, samples, sample_rate as u32, channels as u8, format))
         })?;
         
         for row in rows {
@@ -244,33 +251,16 @@ impl DatabaseManager {
         Ok(data)
     }
 
-    // 检查session是否已经导出过
+    // 检查session是否已经导出过（通过检查文件系统）
     pub fn is_session_exported(&self, session_id: &str) -> DuckResult<bool> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM exported_sessions WHERE session_id = ?",
-            [session_id],
-            |row| row.get(0)
-        ).unwrap_or(0);
-        
-        Ok(count > 0)
+        let export_dir = "data_export";
+        let filename = format!("{}/{}.csv", export_dir, session_id);
+        Ok(std::path::Path::new(&filename).exists())
     }
 
-    // 标记session为已导出
-    pub fn mark_session_exported(&self, session_id: &str) -> DuckResult<()> {
-        // 首先创建导出记录表（如果不存在）
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS exported_sessions (
-                session_id VARCHAR PRIMARY KEY,
-                exported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "INSERT OR IGNORE INTO exported_sessions (session_id) VALUES (?)",
-            [session_id],
-        )?;
-        
+    // 标记session为已导出（现在不需要，因为通过文件存在性检查）
+    pub fn mark_session_exported(&self, _session_id: &str) -> DuckResult<()> {
+        // 不再需要数据库表记录，文件存在即表示已导出
         Ok(())
     }
 }

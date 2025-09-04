@@ -160,11 +160,17 @@ impl SensorDataApp {
             })
             .collect();
 
+        // 获取当前窗口内第一个和最后一个音频数据点的时间戳
+        let audio_start_timestamp = self.state.waveform_plot.get_current_audio_first_timestamp();
+        let audio_end_timestamp = self.state.waveform_plot.get_current_audio_last_timestamp();
+        
         // 创建保存任务
         let save_task = DatabaseTask::Save {
             accelerometer_data: acc_points,
             audio_data,
             audio_metadata: self.state.database.last_audio_metadata.clone(),
+            audio_start_timestamp,
+            audio_end_timestamp,
             session_id: self.state.collection.current_session_id.clone(),
         };
 

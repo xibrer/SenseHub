@@ -32,8 +32,8 @@ pub fn run_database_handler(
         match task_receiver.recv_timeout(Duration::from_millis(100)) {
             Ok(task) => {
                 match task {
-                    DatabaseTask::Save { accelerometer_data, audio_data, audio_metadata, session_id } => {
-                        handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, session_id);
+                    DatabaseTask::Save { accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id } => {
+                        handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id);
                     }
                     DatabaseTask::Export { export_type, response_sender } => {
                         let result = handle_export_request(&db_manager, export_type);
@@ -77,6 +77,8 @@ fn handle_save_task(
     accelerometer_data: Vec<DataPoint>,
     audio_data: Vec<f64>,
     audio_metadata: Option<AudioData>,
+    audio_start_timestamp: Option<i64>,
+    audio_end_timestamp: Option<i64>,
     session_id: String,
 ) {
     let mut acc_saved = 0;
@@ -99,7 +101,7 @@ fn handle_save_task(
 
     // 保存音频数据
     if !audio_data.is_empty() && error_msg.is_none() {
-        match db_manager.save_audio_data(&audio_data, audio_metadata.as_ref(), &session_id) {
+        match db_manager.save_audio_data(&audio_data, audio_metadata.as_ref(), &session_id, audio_start_timestamp, audio_end_timestamp) {
             Ok(count) => {
                 audio_saved = count;
                 info!("Database handler: Saved {} audio records", count);
@@ -143,10 +145,7 @@ fn handle_selected_sessions_export(db_manager: &DatabaseManager, session_ids: Ve
         match export_session_to_csv_internal(db_manager, session_id) {
             Ok(()) => {
                 success_count += 1;
-                // 标记为已导出
-                if let Err(e) = db_manager.mark_session_exported(session_id) {
-                    warn!("Failed to mark session as exported: {}", e);
-                }
+                info!("Successfully exported session: {}", session_id);
             }
             Err(e) => {
                 error_count += 1;
@@ -169,21 +168,20 @@ fn handle_new_sessions_export(db_manager: &DatabaseManager) -> ExportResult {
     match db_manager.get_all_sessions() {
         Ok(sessions) => {
             for session_id in &sessions {
-                // 检查是否已导出
+                // 检查是否已导出（通过文件系统检查）
                 if !db_manager.is_session_exported(session_id).unwrap_or(false) {
                     match export_session_to_csv_internal(db_manager, session_id) {
                         Ok(()) => {
                             success_count += 1;
-                            // 标记为已导出
-                            if let Err(e) = db_manager.mark_session_exported(session_id) {
-                                warn!("Failed to mark session as exported: {}", e);
-                            }
+                            info!("Successfully exported new session: {}", session_id);
                         }
                         Err(e) => {
                             error_count += 1;
                             error!("Failed to export session {}: {}", session_id, e);
                         }
                     }
+                } else {
+                    info!("Session {} already exported, skipping", session_id);
                 }
             }
 
