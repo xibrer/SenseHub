@@ -60,6 +60,9 @@ class WaveformView(context: Context, attrs: AttributeSet?) : View(context, attrs
     private val pathY = Path()
     private val pathZ = Path()
     private val pathAudio = Path()
+    
+    // 绘制暂停状态
+    private var isDrawingPaused = false
 
     fun addData(x: Float, y: Float, z: Float) {
         synchronized(this) {
@@ -89,12 +92,24 @@ class WaveformView(context: Context, attrs: AttributeSet?) : View(context, attrs
         }
         postInvalidate()
     }
+    
+    // 设置绘制暂停状态
+    fun setDrawingPaused(paused: Boolean) {
+        isDrawingPaused = paused
+        if (!paused) {
+            // 恢复绘制时强制刷新
+            postInvalidate()
+        }
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
         // 绘制背景
         canvas.drawColor(Color.WHITE)
+        
+        // 无论是否暂停，都继续绘制当前的波形数据
+        // 暂停时波形会保持静止，但仍然显示最后的状态
         
         // 计算传感器区域和音频区域的高度
         val sensorAreaHeight = height * 0.6f // 传感器数据占60%高度

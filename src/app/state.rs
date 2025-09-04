@@ -11,6 +11,7 @@ use crate::plotter::WaveformPlot;
 #[derive(Debug, Clone)]
 pub struct CollectionState {
     pub is_collecting: bool,
+    pub is_paused: bool,
     pub current_session_id: String,
     pub save_status: String,
 }
@@ -19,6 +20,7 @@ impl Default for CollectionState {
     fn default() -> Self {
         Self {
             is_collecting: false,
+            is_paused: false,
             current_session_id: String::new(),
             save_status: String::new(),
         }
@@ -56,6 +58,48 @@ pub struct ExportState {
     pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
 }
 
+/// 历史数据显示选项
+#[derive(Debug, Clone)]
+pub struct HistoryDisplayOptions {
+    pub show_x_axis: bool,
+    pub show_y_axis: bool,
+    pub show_z_axis: bool,
+    pub show_audio: bool,
+}
+
+impl Default for HistoryDisplayOptions {
+    fn default() -> Self {
+        Self {
+            show_x_axis: true,
+            show_y_axis: true,
+            show_z_axis: true,
+            show_audio: true,
+        }
+    }
+}
+
+/// 历史数据可视化状态
+#[derive(Debug, Clone)]
+pub struct HistoryVisualizationState {
+    pub show_history_panel: bool,
+    pub selected_session: Option<String>,
+    pub loaded_history_data: Vec<DataPoint>,
+    pub loaded_audio_data: Vec<f64>,
+    pub original_history_data: Vec<DataPoint>,
+    pub original_audio_data: Vec<f64>,
+    pub aligned_history_data: Vec<DataPoint>,
+    pub aligned_audio_data: Vec<f64>,
+    pub display_options: HistoryDisplayOptions,
+    pub loading_status: String,
+    pub history_sessions: Vec<String>,
+    pub history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>)>>,
+    pub aligned_history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>, i64)>>,
+    pub common_time_range_ms: i64,
+    pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
+    pub panel_width: f32,
+    pub show_aligned_data: bool,
+}
+
 impl Default for ExportState {
     fn default() -> Self {
         Self {
@@ -65,6 +109,30 @@ impl Default for ExportState {
             selected_sessions: HashSet::new(),
             export_result_receiver: None,
             sessions_result_receiver: None,
+        }
+    }
+}
+
+impl Default for HistoryVisualizationState {
+    fn default() -> Self {
+        Self {
+            show_history_panel: false,
+            selected_session: None,
+            loaded_history_data: Vec::new(),
+            loaded_audio_data: Vec::new(),
+            original_history_data: Vec::new(),
+            original_audio_data: Vec::new(),
+            aligned_history_data: Vec::new(),
+            aligned_audio_data: Vec::new(),
+            display_options: HistoryDisplayOptions::default(),
+            loading_status: String::new(),
+            history_sessions: Vec::new(),
+            history_result_receiver: None,
+            aligned_history_result_receiver: None,
+            common_time_range_ms: 0,
+            sessions_result_receiver: None,
+            panel_width: 300.0, // 默认侧边面板宽度
+            show_aligned_data: true, // 默认显示对齐后的数据
         }
     }
 }
@@ -90,6 +158,7 @@ pub struct AppState {
     pub collection: CollectionState,
     pub calibration: CalibrationState,
     pub export: ExportState,
+    pub history: HistoryVisualizationState,
     pub database: DatabaseState,
     pub channels: DataChannels,
     pub waveform_plot: WaveformPlot,
@@ -109,6 +178,7 @@ impl AppState {
             collection: CollectionState::default(),
             calibration: CalibrationState::default(),
             export: ExportState::default(),
+            history: HistoryVisualizationState::default(),
             database: DatabaseState {
                 db_task_sender,
                 save_result_receiver,
@@ -127,7 +197,11 @@ impl AppState {
         if self.calibration.is_calibrating {
             "Calibrating".to_string()
         } else if self.collection.is_collecting {
-            "Collecting".to_string()
+            if self.collection.is_paused {
+                "Paused".to_string()
+            } else {
+                "Collecting".to_string()
+            }
         } else {
             "Stopped".to_string()
         }
@@ -164,10 +238,31 @@ impl AppState {
     /// 停止采集
     pub fn stop_collection(&mut self) {
         self.collection.is_collecting = false;
+        self.collection.is_paused = false;
     }
 
     /// 开始采集
     pub fn start_collection(&mut self) {
         self.collection.is_collecting = true;
+        self.collection.is_paused = false;
+    }
+
+    /// 暂停采集
+    pub fn pause_collection(&mut self) {
+        if self.collection.is_collecting {
+            self.collection.is_paused = true;
+        }
+    }
+
+    /// 恢复采集
+    pub fn resume_collection(&mut self) {
+        if self.collection.is_collecting {
+            self.collection.is_paused = false;
+        }
+    }
+
+    /// 检查是否正在活跃采集（采集中且未暂停）
+    pub fn is_actively_collecting(&self) -> bool {
+        self.collection.is_collecting && !self.collection.is_paused
     }
 }

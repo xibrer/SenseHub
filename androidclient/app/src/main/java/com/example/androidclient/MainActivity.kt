@@ -38,6 +38,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var mqttClient: MqttAsyncClient? = null
     private lateinit var waveformView: WaveformView
     
+    // 控制按钮
+    private lateinit var btnToggle: Button
+    
+    // 暂停控制状态（合并为一个状态）
+    private var isPaused = false
+    
     // 音频录制相关
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
@@ -59,15 +65,35 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         setContentView(R.layout.activity_main)
         tvData = findViewById(R.id.tvSensorData)
         waveformView = findViewById(R.id.waveform)
+        btnToggle = findViewById(R.id.btnToggle)
+        
         // 初始化传感器系统服务
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        
+        // 设置按钮点击事件
+        setupButtonListeners()
 
         // 检查音频录制权限
         checkAudioPermission()
 
         // 初始化MQTT客户端
         initMqttClient()
+    }
+    
+    private fun setupButtonListeners() {
+        // 统一的暂停/恢复按钮
+        btnToggle.setOnClickListener {
+            isPaused = !isPaused
+            btnToggle.text = if (isPaused) "恢复" else "暂停"
+            waveformView.setDrawingPaused(isPaused)
+            
+            if (isPaused) {
+                Toast.makeText(this, "已暂停数据发送和波形绘制", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "已恢复数据发送和波形绘制", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     // 后期改成注册模式
@@ -190,23 +216,30 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val audioBuffer = ShortArray(bufferSize / 2) // 16-bit PCM
         
         while (isRecording && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+            val recordTimestamp = System.currentTimeMillis()
             val bytesRead = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
             
             if (bytesRead > 0) {
                 val audioSamples = audioBuffer.copyOf(bytesRead)
+                // 在音频数据记录后立即添加时间戳
+
                 
                 // 将音频数据添加到波形视图（不进行下采样）
                 runOnUiThread {
-                    waveformView.addAudioData(audioSamples)
+                    if (!isPaused) {
+                        waveformView.addAudioData(audioSamples)
+                    }
                 }
                 
-                // 发送音频数据到MQTT
-                sendAudioToMqtt(audioSamples)
+                // 发送音频数据到MQTT，传入记录时的时间戳
+                if (!isPaused) {
+                    sendAudioToMqtt(audioSamples, recordTimestamp)
+                }
             }
         }
     }
     
-    private fun sendAudioToMqtt(audioData: ShortArray) {
+    private fun sendAudioToMqtt(audioData: ShortArray, timestamp: Long) {
         if (mqttClient?.isConnected != true) {
             return
         }
@@ -234,7 +267,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 char.code >= 32 || char == ' '
             }
             
-            val timestamp = System.currentTimeMillis()
+            // 使用传入的记录时间戳，而不是在此处生成新的时间戳
             
             // 使用JSON库构造JSON，更安全
             val jsonObject = JSONObject().apply {
@@ -319,6 +352,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val x = event.values[0]
             val y = event.values[1]
             val z = event.values[2]
+            // 在传感器数据接收后立即添加时间戳
+            val sensorTimestamp = System.currentTimeMillis()
 
             // 更新UI显示
             val dataText = """
@@ -328,20 +363,22 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             """.trimIndent().format(Locale.US, x, y, z)
             tvData.text = dataText
 
-            waveformView.addData(x, y, z)
-            // 发送到MQTT
-            sendToMqtt(x, y, z)
+            // 只有在未暂停时才添加数据到波形视图和发送数据
+            if (!isPaused) {
+                waveformView.addData(x, y, z)
+                sendToMqtt(x, y, z, sensorTimestamp)
+            }
         }
     }
 
-    private fun sendToMqtt(x: Float, y: Float, z: Float) {
+    private fun sendToMqtt(x: Float, y: Float, z: Float, timestamp: Long) {
         if (mqttClient?.isConnected != true) {
             Log.w("MQTT", "Attempted to send while disconnected")
             return
         }
 
         try {
-            val timestamp = System.currentTimeMillis()
+            // 使用传入的传感器数据接收时间戳，而不是在此处生成新的时间戳
 
             val payload = buildString {
                 append("{\n")

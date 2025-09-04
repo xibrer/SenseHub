@@ -11,10 +11,10 @@ impl CalibrationHandler {
             Self::process_calibration_data(app, data);
         }
         
-        // 检查是否达到5秒
+        // 检查是否达到8秒（校准结束）
         if let Some(start_time) = app.state.calibration.calibration_start_time {
             let elapsed = start_time.elapsed();
-            if elapsed.as_secs_f64() >= 5.0 && !app.state.calibration.calibration_data.is_empty() {
+            if elapsed.as_secs_f64() >= 8.0 && !app.state.calibration.calibration_data.is_empty() {
                 Self::calculate_sample_rate_from_timestamps(app);
             }
         }
@@ -32,7 +32,21 @@ impl CalibrationHandler {
             info!("收到第一个样本，开始校准计时");
         }
         
-        app.state.calibration.calibration_data.push(data);
+        // 检查是否已经过了2秒，只有在2-8秒期间才收集数据
+        if let Some(start_time) = app.state.calibration.calibration_start_time {
+            let elapsed = start_time.elapsed().as_secs_f64();
+            
+            // 在刚好2秒时打印开始收集信息
+            if elapsed >= 2.0 && elapsed < 2.1 && app.state.calibration.calibration_data.is_empty() {
+                info!("开始收集校准数据 (2-8秒期间)");
+            }
+            
+            if elapsed >= 2.0 && elapsed < 8.0 {
+                // 在2-8秒期间收集校准数据
+                app.state.calibration.calibration_data.push(data);
+            }
+            // 前2秒的数据被丢弃，8秒后的数据也被丢弃
+        }
     }
     
     fn calculate_sample_rate_from_timestamps(app: &mut SensorDataApp) {
@@ -50,7 +64,7 @@ impl CalibrationHandler {
         if time_diff_ms > 0 {
             let sample_rate = (sample_count - 1.0) * 1000.0 / time_diff_ms as f64;
             
-            info!("校准完成: {} 个样本, 时间差 {}ms, 计算采样率: {:.2} Hz", 
+            info!("校准完成: {} 个样本 (2-8秒数据), 时间差 {}ms, 计算采样率: {:.2} Hz", 
                   sample_count, time_diff_ms, sample_rate);
             
             // 使用新的状态管理方法完成校准
