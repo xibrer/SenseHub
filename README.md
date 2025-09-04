@@ -29,7 +29,7 @@
 ### 桌面端应用
 
 1. 确保已安装Rust编程环境
-2. 配置`.env`文件，设置MQTT服务器连接参数：
+2. 配置 `.env`文件，设置MQTT服务器连接参数：
    ```
    MQTT_HOST=你的MQTT服务器地址
    MQTT_PORT=1883
@@ -43,8 +43,8 @@
 
 ### Android客户端
 
-1. 在Android Studio中打开`androidclient`目录
-2. 根据需要修改`MainActivity.kt`中的MQTT服务器设置：
+1. 在Android Studio中打开 `androidclient`目录
+2. 根据需要修改 `MainActivity.kt`中的MQTT服务器设置：
    ```kotlin
    private val mqttServerUri = "tcp://你的服务器IP:1883"
    private val mqttUsername = "你的用户名"
@@ -55,6 +55,7 @@
 ### MQTT服务器设置
 
 可以使用任意支持MQTT协议的消息代理服务器，如：
+
 - Mosquitto
 - EMQ X
 - HiveMQ
@@ -81,13 +82,12 @@
 ### TODO 列表
 
 - [ ] 实现数据保存和导出功能（支持CSV、JSON格式）
-- [ ] 优化客户端时间戳处理逻辑
 - [ ] 扩展Android客户端支持更多传感器（陀螺仪、磁力计等）
-- [ ] 添加可配置的采样率设置
+- [X] 添加可配置的采样率设置
 - [ ] 实现数据过滤和预处理算法
 - [ ] 添加多设备数据对比显示功能
 - [ ] 实现数据回放功能
-- [ ] 添加实时数据分析和异常检测
+- [ ] 添加多传感器时间戳自动对齐
 
 ## 问题排查
 
@@ -101,4 +101,4 @@
 
 ## 贡献
 
-欢迎贡献代码或提出建议，请提交问题报告或合并请求。 
+欢迎贡献代码或提出建议，请提交问题报告或合并请求。

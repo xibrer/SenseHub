@@ -1,0 +1,40 @@
+use super::{DataPoint, AudioData, ExportResult};
+
+/// Database task enumeration for async operations
+#[derive(Clone)]
+pub enum DatabaseTask {
+    Save {
+        accelerometer_data: Vec<DataPoint>,
+        audio_data: Vec<f64>,
+        audio_metadata: Option<AudioData>,
+        session_id: String,
+    },
+    Export {
+        export_type: ExportType,
+        response_sender: crossbeam_channel::Sender<ExportResult>,
+    },
+    GetSessions {
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
+    CheckExported {
+        session_id: String,
+        response_sender: crossbeam_channel::Sender<bool>,
+    },
+}
+
+/// Export type specification
+#[derive(Clone, Debug)]
+pub enum ExportType {
+    SelectedSessions(Vec<String>),
+    NewSessions,
+}
+
+impl ExportType {
+    pub fn selected(session_ids: Vec<String>) -> Self {
+        Self::SelectedSessions(session_ids)
+    }
+
+    pub fn new_only() -> Self {
+        Self::NewSessions
+    }
+}

@@ -1,11 +1,14 @@
 use egui_plot::{Line, Plot, PlotPoints};
 use egui::Color32;
+use std::collections::VecDeque;
 
+#[derive(Debug)]
 pub struct WaveformPlot {
-    buffer_x: Vec<f64>,
-    buffer_y: Vec<f64>,
-    buffer_z: Vec<f64>,
-    audio_buffer: Vec<f64>,
+    buffer_x: VecDeque<f64>,
+    buffer_y: VecDeque<f64>,
+    buffer_z: VecDeque<f64>,
+    buffer_timestamp: VecDeque<i64>, // 添加时间戳缓冲区
+    audio_buffer: VecDeque<f64>,
     max_samples: usize,
     window_duration: f64, // 窗口持续时间（秒）
     // 音频相关
@@ -24,10 +27,11 @@ impl WaveformPlot {
         let audio_max_samples = (audio_window_seconds * audio_sample_rate as f64) as usize;
 
         Self {
-            buffer_x: Vec::new(),
-            buffer_y: Vec::new(),
-            buffer_z: Vec::new(),
-            audio_buffer: Vec::new(),
+            buffer_x: VecDeque::with_capacity(max_samples),
+            buffer_y: VecDeque::with_capacity(max_samples),
+            buffer_z: VecDeque::with_capacity(max_samples),
+            buffer_timestamp: VecDeque::with_capacity(max_samples), // 初始化时间戳缓冲区
+            audio_buffer: VecDeque::with_capacity(audio_max_samples),
             max_samples,
             window_duration: window_seconds,
             audio_max_samples,
@@ -35,32 +39,35 @@ impl WaveformPlot {
         }
     }
 
-    pub fn add_data(&mut self, x: f64, y: f64, z: f64) {
+    pub fn add_data(&mut self, x: f64, y: f64, z: f64, timestamp: i64) {
         // 将新数据添加到缓冲区末尾
-        self.buffer_x.push(x);
-        self.buffer_y.push(y);
-        self.buffer_z.push(z);
+        self.buffer_x.push_back(x);
+        self.buffer_y.push_back(y);
+        self.buffer_z.push_back(z);
+        self.buffer_timestamp.push_back(timestamp);
 
-        // 如果超过最大样本数，移除最旧的数据（从前面移除）
+        // 如果超过最大样本数，移除最旧的数据（从前面移除）- O(1)操作
         if self.buffer_x.len() > self.max_samples {
-            self.buffer_x.remove(0);
-            self.buffer_y.remove(0);
-            self.buffer_z.remove(0);
+            self.buffer_x.pop_front();
+            self.buffer_y.pop_front();
+            self.buffer_z.pop_front();
+            self.buffer_timestamp.pop_front();
         }
     }
     
     pub fn add_audio_samples(&mut self, samples: &[i16]) {
-        // 控制音频数据的添加速率，使其与时间轴同步
-        // 16kHz音频数据需要按照实际时间间隔添加到缓冲区
-        for &sample in samples {
-            // 将i16样本转换为归一化的f64值 (-1.0 到 1.0)
-            let normalized_sample = sample as f64 / 32768.0;
-            self.audio_buffer.push(normalized_sample);
-            
-            // 如果超过最大样本数，移除最旧的数据（从前面移除）
-            if self.audio_buffer.len() > self.audio_max_samples {
-                self.audio_buffer.remove(0);
-            }
+        // 批量转换音频样本为归一化的f64值 (-1.0 到 1.0)
+        let normalized_samples: Vec<f64> = samples
+            .iter()
+            .map(|&sample| sample as f64 / 32768.0)
+            .collect();
+        
+        // 批量添加到缓冲区末尾
+        self.audio_buffer.extend(normalized_samples);
+        
+        // 如果超过最大样本数，批量移除最旧的数据 - O(1)操作
+        while self.audio_buffer.len() > self.audio_max_samples {
+            self.audio_buffer.pop_front();
         }
     }
 
@@ -77,7 +84,7 @@ impl WaveformPlot {
         });
     }
 
-    fn plot_axis(&self, ui: &mut egui::Ui, title: &str, buffer: &[f64], color: Color32) {
+    fn plot_axis(&self, ui: &mut egui::Ui, title: &str, buffer: &VecDeque<f64>, color: Color32) {
         if buffer.is_empty() {
             return;
         }
@@ -130,7 +137,7 @@ impl WaveformPlot {
             });
     }
     
-    fn plot_audio(&self, ui: &mut egui::Ui, title: &str, buffer: &[f64], color: Color32) {
+    fn plot_audio(&self, ui: &mut egui::Ui, title: &str, buffer: &VecDeque<f64>, color: Color32) {
         if buffer.is_empty() {
             return;
         }
@@ -181,6 +188,26 @@ impl WaveformPlot {
 
                 plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));
             });
+    }
+
+    // 获取当前缓冲区数据的方法
+    pub fn get_current_accelerometer_data(&self) -> Vec<(f64, f64, f64, i64)> {
+        let mut data = Vec::new();
+        for i in 0..self.buffer_x.len() {
+            if let (Some(&x), Some(&y), Some(&z), Some(&timestamp)) = (
+                self.buffer_x.get(i),
+                self.buffer_y.get(i),
+                self.buffer_z.get(i),
+                self.buffer_timestamp.get(i)
+            ) {
+                data.push((x, y, z, timestamp));
+            }
+        }
+        data
+    }
+
+    pub fn get_current_audio_data(&self) -> Vec<f64> {
+        self.audio_buffer.iter().cloned().collect()
     }
 
 }
