@@ -43,6 +43,15 @@ pub struct MqttConfig {
     pub topics: MqttTopics,
     pub qos: u8,
     pub keep_alive: u16,
+    pub audio_buffer: AudioBufferConfig,
+}
+
+/// 音频数据包缓冲器配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioBufferConfig {
+    pub buffer_window_size: usize,
+    pub max_wait_time_ms: u64,
+    pub enable_reordering: bool,
 }
 
 /// MQTT主题配置
@@ -136,6 +145,17 @@ impl Default for MqttConfig {
             topics: MqttTopics::default(),
             qos: 1,
             keep_alive: 60,
+            audio_buffer: AudioBufferConfig::default(),
+        }
+    }
+}
+
+impl Default for AudioBufferConfig {
+    fn default() -> Self {
+        Self {
+            buffer_window_size: 10,
+            max_wait_time_ms: 100,
+            enable_reordering: true,
         }
     }
 }

@@ -143,6 +143,7 @@ pub fn align_session_data_internal(
             for i in 0..shift_count {
                 let timestamp = first_point.timestamp - ((shift_count - i) as f64 * sample_interval_ms) as i64;
                 aligned_data.push(DataPoint {
+                    packet_id: 0, // 对齐处理的数据没有packet_id，设为0
                     x: first_point.x,  // 使用第一个点的x值
                     y: first_point.y,  // 使用第一个点的y值
                     z: first_point.z,  // 使用第一个点的z值
@@ -177,6 +178,7 @@ pub fn align_session_data_internal(
             for i in 1..=shift_count {
                 let timestamp = last_point.timestamp + (i as f64 * sample_interval_ms) as i64;
                 aligned_data.push(DataPoint {
+                    packet_id: 0, // 对齐处理的数据没有packet_id，设为0
                     x: last_point.x,   // 使用最后一个点的x值
                     y: last_point.y,   // 使用最后一个点的y值
                     z: last_point.z,   // 使用最后一个点的z值

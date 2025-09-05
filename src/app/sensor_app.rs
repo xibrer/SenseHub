@@ -233,6 +233,7 @@ impl SensorDataApp {
         let acc_points: Vec<DataPoint> = acc_data
             .into_iter()
             .map(|(x, y, z, timestamp)| DataPoint {
+                packet_id: 0, // 绘图数据没有packet_id，设为0
                 x,
                 y,
                 z,

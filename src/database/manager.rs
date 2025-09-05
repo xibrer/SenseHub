@@ -201,6 +201,7 @@ impl DatabaseManager {
         
         let rows = stmt.query_map([session_id], |row| {
             Ok(DataPoint {
+                packet_id: 0, // 从数据库读取的历史数据没有packet_id，设为0
                 timestamp: row.get::<_, i64>(0)?,
                 x: row.get::<_, f64>(1)?,
                 y: row.get::<_, f64>(2)?,

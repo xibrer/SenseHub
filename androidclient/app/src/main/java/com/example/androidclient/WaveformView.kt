@@ -16,7 +16,7 @@ class WaveformView(context: Context, attrs: AttributeSet?) : View(context, attrs
     
     // 音频数据存储，不进行下采样
     private val audioData = ArrayDeque<Short>()
-    private val maxAudioDataPoints = 5000 // 增加音频数据点以保持更多细节
+    private val maxAudioDataPoints = 40000 // 增加音频数据点以保持更多细节
 
     private val paintAxis = Paint().apply {
         color = Color.WHITE
@@ -83,7 +83,7 @@ class WaveformView(context: Context, attrs: AttributeSet?) : View(context, attrs
     fun addAudioData(audioSamples: ShortArray) {
         synchronized(this) {
             // 进行2倍下采样：每两个样本取一个
-            for (i in audioSamples.indices step 16) {
+            for (i in audioSamples.indices step 2) {
                 audioData.addLast(audioSamples[i])
                 if (audioData.size > maxAudioDataPoints) {
                     audioData.removeFirst()

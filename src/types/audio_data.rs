@@ -1,5 +1,6 @@
 #[derive(serde::Deserialize, Clone, Debug)]
 pub struct AudioData {
+    pub packet_id: u64,
     pub audio_data: String,  // Base64 encoded audio data
     pub sample_rate: u32,
     pub channels: u8,
@@ -10,6 +11,7 @@ pub struct AudioData {
 
 impl AudioData {
     pub fn new(
+        packet_id: u64,
         audio_data: String,
         sample_rate: u32,
         channels: u8,
@@ -18,6 +20,7 @@ impl AudioData {
         timestamp: i64,
     ) -> Self {
         Self {
+            packet_id,
             audio_data,
             sample_rate,
             channels,

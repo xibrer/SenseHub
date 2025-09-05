@@ -45,6 +45,7 @@ fn main() {
         db_task_receiver,
         save_result_sender,
         shutdown_signal.clone(),
+        config.clone(),
     );
 
     // 配置并启动GUI
@@ -66,6 +67,7 @@ fn start_background_threads(
     db_task_receiver: crossbeam_channel::Receiver<DatabaseTask>,
     save_result_sender: crossbeam_channel::Sender<SaveResult>,
     shutdown_signal: Arc<AtomicBool>,
+    config: config::AppConfig,
 ) -> Vec<thread::JoinHandle<()>> {
     let mut handles = Vec::new();
 
@@ -73,9 +75,10 @@ fn start_background_threads(
     let mqtt_data_sender = Arc::new(data_sender);
     let mqtt_audio_sender = Arc::new(audio_sender);
     let mqtt_shutdown = Arc::clone(&shutdown_signal);
+    let mqtt_config = Some(config.clone());
     
     let mqtt_handle = thread::spawn(move || {
-        if let Err(e) = run_mqtt_client(mqtt_data_sender, mqtt_audio_sender, mqtt_shutdown) {
+        if let Err(e) = run_mqtt_client(mqtt_data_sender, mqtt_audio_sender, mqtt_shutdown, mqtt_config) {
             error!("MQTT thread failed: {}", e);
         }
     });

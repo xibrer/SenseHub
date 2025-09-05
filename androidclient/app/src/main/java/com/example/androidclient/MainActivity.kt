@@ -44,6 +44,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     // 暂停控制状态（合并为一个状态）
     private var isPaused = false
     
+    // 数据包ID计数器（用于检测数据丢失）
+    private var audioPacketId = 0L
+    private var sensorPacketId = 0L
+    
     // 音频录制相关
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
@@ -216,9 +220,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         val audioBuffer = ShortArray(bufferSize / 2) // 16-bit PCM
         
         while (isRecording && audioRecord?.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-            val recordTimestamp = System.currentTimeMillis()
+
             val bytesRead = audioRecord?.read(audioBuffer, 0, audioBuffer.size) ?: 0
-            
+            val recordTimestamp = System.currentTimeMillis()
             if (bytesRead > 0) {
                 val audioSamples = audioBuffer.copyOf(bytesRead)
                 // 在音频数据记录后立即添加时间戳
@@ -271,6 +275,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             
             // 使用JSON库构造JSON，更安全
             val jsonObject = JSONObject().apply {
+                put("packet_id", audioPacketId++)
                 put("audio_data", base64Audio)
                 put("sample_rate", sampleRate)
                 put("channels", 1)
@@ -382,6 +387,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
             val payload = buildString {
                 append("{\n")
+                append("\"packet_id\": ${sensorPacketId++},\n")
                 append("\"x\": ${"%.6f".format(Locale.US, x.toDouble())},\n")
                 append("\"y\": ${"%.6f".format(Locale.US, y.toDouble())},\n")
                 append("\"z\": ${"%.6f".format(Locale.US, z.toDouble())},\n")
