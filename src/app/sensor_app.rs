@@ -215,14 +215,22 @@ impl SensorDataApp {
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Space) {
-                // 如果文本阅读器启用，处理文本切换
+                // 空格键同时处理文本切换和数据保存
+                let mut performed_action = false;
+                
+                // 1. 如果文本阅读器启用，切换到下一行文本
                 if self.state.text_reader.is_enabled {
                     self.state.next_text_line();
-                } else if self.state.collection.is_collecting && !self.state.collection.is_paused {
+                    performed_action = true;
+                }
+                
+                // 2. 如果正在采集数据且未暂停，保存当前窗口数据
+                if self.state.collection.is_collecting && !self.state.collection.is_paused {
                     self.save_current_window_data_async();
+                    performed_action = true;
                 } else if self.state.collection.is_paused {
                     self.state.collection.save_status = "Data collection is paused".to_string();
-                } else {
+                } else if !performed_action {
                     self.state.collection.save_status = "Not collecting data".to_string();
                 }
             }

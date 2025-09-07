@@ -8,10 +8,22 @@ pub fn render_main_panel(app: &mut SensorDataApp, ctx: &egui::Context) {
             // 快捷键说明
             ui.label("Hotkey:");
             ui.colored_label(egui::Color32::from_rgb(0, 150, 0), "SPACE");
+            
+            // 显示空格键的双重功能
+            let mut functions = Vec::new();
             if app.state.text_reader.is_enabled {
-                ui.label("Next text line");
+                functions.push("Next text line");
+            }
+            if app.state.collection.is_collecting && !app.state.collection.is_paused {
+                functions.push("Save data");
+            } else if !app.state.text_reader.is_enabled {
+                functions.push("Save current window data to database");
+            }
+            
+            if functions.is_empty() {
+                ui.label("(No active functions)");
             } else {
-                ui.label("Save current window data to database");
+                ui.label(functions.join(" + "));
             }
             
             ui.separator();
