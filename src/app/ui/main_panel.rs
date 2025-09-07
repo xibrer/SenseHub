@@ -28,6 +28,31 @@ pub fn render_main_panel(app: &mut SensorDataApp, ctx: &egui::Context) {
             
             ui.separator();
             
+            // 用户名输入框
+            ui.label("Username:");
+            ui.add(egui::TextEdit::singleline(&mut app.state.collection.username)
+                .desired_width(100.0)
+                .hint_text("Enter username"));
+            
+            // 场景输入框
+            ui.label("Scenario:");
+            let mut scenario_text = app.state.collection.scenario.clone();
+            if scenario_text.is_empty() {
+                scenario_text = "standard".to_string();
+                app.state.collection.scenario = scenario_text.clone();
+            }
+            if ui.add(egui::TextEdit::singleline(&mut scenario_text)
+                .desired_width(100.0)
+                .hint_text("standard")).changed() {
+                app.state.collection.scenario = if scenario_text.is_empty() {
+                    "standard".to_string()
+                } else {
+                    scenario_text
+                };
+            }
+            
+            ui.separator();
+            
             // 文本阅读器控制
             ui.label("Text Reader:");
             if ui.checkbox(&mut app.state.text_reader.is_enabled, "Enable").changed() {

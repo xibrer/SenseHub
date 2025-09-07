@@ -49,6 +49,12 @@ impl DatabaseManager {
 
         // 然后执行迁移，添加陀螺仪列（如果不存在）
         self.migrate_accelerometer_table()?;
+        
+        // 执行迁移，添加用户名列（如果不存在）
+        self.migrate_username_columns()?;
+        
+        // 执行迁移，添加场景列（如果不存在）
+        self.migrate_scenario_column()?;
 
         // 创建音频数据表
         self.conn.execute(
@@ -112,15 +118,89 @@ impl DatabaseManager {
         }
     }
 
-    pub fn save_accelerometer_data(&self, data: &[DataPoint], session_id: &str) -> DuckResult<usize> {
+    fn migrate_username_columns(&self) -> DuckResult<()> {
+        // 检查加速度数据表是否需要添加用户名列
+        let acc_has_username = self.check_username_column_exists("accelerometer_data")?;
+        
+        if !acc_has_username {
+            info!("Adding username column to accelerometer_data table");
+            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN username VARCHAR DEFAULT ''", [])?;
+            info!("Successfully added username column to accelerometer_data table");
+        } else {
+            info!("Username column already exists in accelerometer_data table");
+        }
+
+        // 检查音频数据表是否需要添加用户名列
+        let audio_has_username = self.check_username_column_exists("audio_data")?;
+        
+        if !audio_has_username {
+            info!("Adding username column to audio_data table");
+            self.conn.execute("ALTER TABLE audio_data ADD COLUMN username VARCHAR DEFAULT ''", [])?;
+            info!("Successfully added username column to audio_data table");
+        } else {
+            info!("Username column already exists in audio_data table");
+        }
+        
+        Ok(())
+    }
+
+    fn check_username_column_exists(&self, table_name: &str) -> DuckResult<bool> {
+        // 尝试查询用户名列，如果出错说明列不存在
+        let query = format!("SELECT username FROM {} LIMIT 1", table_name);
+        let result = self.conn.execute(&query, []);
+        
+        match result {
+            Ok(_) => {
+                info!("Username column found in {} table", table_name);
+                Ok(true)
+            },
+            Err(_) => {
+                info!("Username column not found in {} table", table_name);
+                Ok(false)
+            }
+        }
+    }
+
+    fn migrate_scenario_column(&self) -> DuckResult<()> {
+        // 检查加速度数据表是否需要添加场景列
+        let has_scenario = self.check_scenario_column_exists()?;
+        
+        if !has_scenario {
+            info!("Adding scenario column to accelerometer_data table");
+            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN scenario VARCHAR DEFAULT 'standard'", [])?;
+            info!("Successfully added scenario column to accelerometer_data table");
+        } else {
+            info!("Scenario column already exists in accelerometer_data table");
+        }
+        
+        Ok(())
+    }
+
+    fn check_scenario_column_exists(&self) -> DuckResult<bool> {
+        // 尝试查询场景列，如果出错说明列不存在
+        let result = self.conn.execute("SELECT scenario FROM accelerometer_data LIMIT 1", []);
+        
+        match result {
+            Ok(_) => {
+                info!("Scenario column found in accelerometer_data table");
+                Ok(true)
+            },
+            Err(_) => {
+                info!("Scenario column not found in accelerometer_data table");
+                Ok(false)
+            }
+        }
+    }
+
+    pub fn save_accelerometer_data(&self, data: &[DataPoint], session_id: &str, username: &str, scenario: &str) -> DuckResult<usize> {
         if data.is_empty() {
             warn!("No accelerometer data to save");
             return Ok(0);
         }
 
         let mut stmt = self.conn.prepare(
-            "INSERT INTO accelerometer_data (timestamp_ms, x, y, z, gx, gy, gz, session_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO accelerometer_data (timestamp_ms, x, y, z, gx, gy, gz, session_id, username, scenario) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )?;
 
         let mut count = 0;
@@ -134,16 +214,18 @@ impl DatabaseManager {
                 point.gx,
                 point.gy,
                 point.gz,
-                session_id
+                session_id,
+                username,
+                scenario
             ])?;
             count += 1;
         }
 
-        info!("Saved {} accelerometer data points to database", count);
+        info!("Saved {} accelerometer data points to database for user {} in scenario {}", count, username, scenario);
         Ok(count)
     }
 
-    pub fn save_audio_data(&self, audio_samples: &[f64], audio_metadata: Option<&AudioData>, session_id: &str, start_timestamp_ms: Option<i64>, end_timestamp_ms: Option<i64>) -> DuckResult<usize> {
+    pub fn save_audio_data(&self, audio_samples: &[f64], audio_metadata: Option<&AudioData>, session_id: &str, start_timestamp_ms: Option<i64>, end_timestamp_ms: Option<i64>, username: &str) -> DuckResult<usize> {
         if audio_samples.is_empty() {
             warn!("No audio data to save");
             return Ok(0);
@@ -177,8 +259,8 @@ impl DatabaseManager {
         let end_timestamp = end_timestamp_ms.unwrap_or(default_timestamp_ms);
 
         let mut stmt = self.conn.prepare(
-            "INSERT INTO audio_data (start_timestamp_ms, end_timestamp_ms, sample_rate, channels, format, samples_count, audio_blob, session_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO audio_data (start_timestamp_ms, end_timestamp_ms, sample_rate, channels, format, samples_count, audio_blob, session_id, username) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )?;
         
         stmt.execute(duckdb::params![
@@ -189,10 +271,11 @@ impl DatabaseManager {
             format,
             audio_samples.len() as i32,
             audio_bytes,
-            session_id
+            session_id,
+            username
         ])?;
 
-        info!("Saved audio data with {} samples to database", audio_samples.len());
+        info!("Saved audio data with {} samples to database for user {}", audio_samples.len(), username);
         Ok(1)
     }
 
@@ -230,6 +313,179 @@ impl DatabaseManager {
         }
         
         Ok(sessions)
+    }
+
+    // 获取未导出的session ID列表
+    pub fn get_unexported_sessions(&self) -> DuckResult<Vec<String>> {
+        let all_sessions = self.get_all_sessions()?;
+        let mut unexported_sessions = Vec::new();
+        
+        for session_id in all_sessions {
+            match self.is_session_exported(&session_id) {
+                Ok(false) => unexported_sessions.push(session_id),
+                Ok(true) => {
+                    info!("Session {} already exported, skipping", session_id);
+                }
+                Err(e) => {
+                    warn!("Failed to check export status for session {}: {}", session_id, e);
+                    // 如果检查失败，仍然包含该session
+                    unexported_sessions.push(session_id);
+                }
+            }
+        }
+        
+        Ok(unexported_sessions)
+    }
+
+    // 获取所有用户名列表
+    pub fn get_all_usernames(&self) -> DuckResult<Vec<String>> {
+        let mut usernames = Vec::new();
+        
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT 
+                CASE 
+                    WHEN username IS NULL OR username = '' THEN 'unknown_user'
+                    ELSE username 
+                END as effective_username
+             FROM accelerometer_data 
+             UNION 
+             SELECT DISTINCT 
+                CASE 
+                    WHEN username IS NULL OR username = '' THEN 'unknown_user'
+                    ELSE username 
+                END as effective_username
+             FROM audio_data 
+             ORDER BY effective_username"
+        )?;
+        
+        let rows = stmt.query_map([], |row| {
+            Ok(row.get::<_, String>(0)?)
+        })?;
+        
+        for row in rows {
+            usernames.push(row?);
+        }
+        
+        // 如果没有用户名，添加默认用户
+        if usernames.is_empty() {
+            usernames.push("unknown_user".to_string());
+        }
+        
+        Ok(usernames)
+    }
+
+    // 获取指定用户的session列表
+    pub fn get_sessions_by_username(&self, username: &str) -> DuckResult<Vec<String>> {
+        let mut sessions = Vec::new();
+        
+        if username == "unknown_user" {
+            // 对于unknown_user，查找username为空或NULL的记录
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT session_id FROM accelerometer_data 
+                 WHERE username IS NULL OR username = '' 
+                 UNION 
+                 SELECT DISTINCT a.session_id FROM audio_data a
+                 JOIN accelerometer_data acc ON a.session_id = acc.session_id
+                 WHERE acc.username IS NULL OR acc.username = ''
+                 ORDER BY session_id DESC"
+            )?;
+            
+            let rows = stmt.query_map([], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                sessions.push(row?);
+            }
+        } else {
+            // 对于其他用户，正常查询
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT session_id FROM accelerometer_data 
+                 WHERE username = ? 
+                 UNION 
+                 SELECT DISTINCT a.session_id FROM audio_data a
+                 JOIN accelerometer_data acc ON a.session_id = acc.session_id
+                 WHERE acc.username = ?
+                 ORDER BY session_id DESC"
+            )?;
+            
+            let rows = stmt.query_map([username, username], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                sessions.push(row?);
+            }
+        }
+        
+        Ok(sessions)
+    }
+
+    // 获取session对应的用户名
+    pub fn get_username_for_session(&self, session_id: &str) -> DuckResult<String> {
+        // 首先尝试从加速度数据表获取用户名
+        let mut stmt = self.conn.prepare(
+            "SELECT username FROM accelerometer_data WHERE session_id = ? LIMIT 1"
+        )?;
+        
+        match stmt.query_row([session_id], |row| {
+            row.get::<_, String>(0)
+        }) {
+            Ok(username) => return Ok(username),
+            Err(_) => {
+                // 如果加速度数据表中没有，尝试从音频数据表获取
+                let mut stmt = self.conn.prepare(
+                    "SELECT username FROM audio_data WHERE session_id = ? LIMIT 1"
+                )?;
+                
+                match stmt.query_row([session_id], |row| {
+                    row.get::<_, String>(0)
+                }) {
+                    Ok(username) => Ok(username),
+                    Err(_) => Ok(String::new()), // 如果都没有找到，返回空字符串
+                }
+            }
+        }
+    }
+
+    // 获取session对应的场景
+    pub fn get_scenario_for_session(&self, session_id: &str) -> DuckResult<String> {
+        // 从加速度数据表获取场景信息
+        let mut stmt = self.conn.prepare(
+            "SELECT scenario FROM accelerometer_data WHERE session_id = ? LIMIT 1"
+        )?;
+        
+        match stmt.query_row([session_id], |row| {
+            row.get::<_, String>(0)
+        }) {
+            Ok(scenario) => Ok(scenario),
+            Err(_) => Ok("standard".to_string()), // 如果没有找到，返回默认值
+        }
+    }
+
+    // 检查session是否已经导出
+    pub fn is_session_exported(&self, session_id: &str) -> DuckResult<bool> {
+        let username = self.get_username_for_session(session_id)?;
+        let scenario = self.get_scenario_for_session(session_id)?;
+        
+        // 处理空用户名和场景
+        let user_dir = if username.is_empty() {
+            "unknown_user"
+        } else {
+            &username
+        };
+        
+        let scenario_dir = if scenario.is_empty() {
+            "standard"
+        } else {
+            &scenario
+        };
+        
+        // 构建文件路径
+        let file_path = format!("data_export/{}/{}/{}.csv", user_dir, scenario_dir, session_id);
+        
+        // 检查文件是否存在
+        Ok(std::path::Path::new(&file_path).exists())
     }
 
     // 获取指定session的加速度数据
@@ -297,12 +553,6 @@ impl DatabaseManager {
         Ok(data)
     }
 
-    // 检查session是否已经导出过（通过检查文件系统）
-    pub fn is_session_exported(&self, session_id: &str) -> DuckResult<bool> {
-        let export_dir = "data_export";
-        let filename = format!("{}/{}.csv", export_dir, session_id);
-        Ok(std::path::Path::new(&filename).exists())
-    }
 
     // 标记session为已导出（现在不需要，因为通过文件存在性检查）
     pub fn mark_session_exported(&self, _session_id: &str) -> DuckResult<()> {

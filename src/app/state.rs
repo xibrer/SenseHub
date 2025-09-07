@@ -14,6 +14,8 @@ pub struct CollectionState {
     pub is_paused: bool,
     pub current_session_id: String,
     pub save_status: String,
+    pub username: String,
+    pub scenario: String,
 }
 
 impl Default for CollectionState {
@@ -23,6 +25,8 @@ impl Default for CollectionState {
             is_paused: false,
             current_session_id: String::new(),
             save_status: String::new(),
+            username: "test".to_string(),
+            scenario: "standard".to_string(),
         }
     }
 }
@@ -88,6 +92,7 @@ impl Default for HistoryDisplayOptions {
 #[derive(Debug, Clone)]
 pub struct HistoryVisualizationState {
     pub show_history_panel: bool,
+    pub selected_username: Option<String>,
     pub selected_session: Option<String>,
     pub loaded_history_data: Vec<DataPoint>,
     pub loaded_audio_data: Vec<f64>,
@@ -97,11 +102,13 @@ pub struct HistoryVisualizationState {
     pub aligned_audio_data: Vec<f64>,
     pub display_options: HistoryDisplayOptions,
     pub loading_status: String,
+    pub available_usernames: Vec<String>,
     pub history_sessions: Vec<String>,
     pub history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>)>>,
     pub aligned_history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>, i64)>>,
     pub common_time_range_ms: i64,
     pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
+    pub usernames_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
     pub panel_width: f32,
     pub show_aligned_data: bool,
 }
@@ -123,6 +130,7 @@ impl Default for HistoryVisualizationState {
     fn default() -> Self {
         Self {
             show_history_panel: false,
+            selected_username: None,
             selected_session: None,
             loaded_history_data: Vec::new(),
             loaded_audio_data: Vec::new(),
@@ -132,11 +140,13 @@ impl Default for HistoryVisualizationState {
             aligned_audio_data: Vec::new(),
             display_options: HistoryDisplayOptions::default(),
             loading_status: String::new(),
+            available_usernames: Vec::new(),
             history_sessions: Vec::new(),
             history_result_receiver: None,
             aligned_history_result_receiver: None,
             common_time_range_ms: 0,
             sessions_result_receiver: None,
+            usernames_result_receiver: None,
             panel_width: 300.0, // 默认侧边面板宽度
             show_aligned_data: true, // 默认显示对齐后的数据
         }

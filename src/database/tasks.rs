@@ -6,6 +6,13 @@ use super::manager::DatabaseManager;
 
 /// 内部导出函数（在数据库线程中运行）
 pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: &str) -> Result<(), String> {
+    // 获取session对应的用户名
+    let username = db_manager.get_username_for_session(session_id)
+        .map_err(|e| format!("Failed to get username for session: {}", e))?;
+    
+    // 获取session对应的场景
+    let scenario = db_manager.get_scenario_for_session(session_id)
+        .map_err(|e| format!("Failed to get scenario for session: {}", e))?;
     // 获取加速度数据
     let acc_data = db_manager.get_accelerometer_data_by_session(session_id)
         .map_err(|e| format!("Failed to get accelerometer data: {}", e))?;
@@ -21,10 +28,29 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
     // 执行数据对齐算法（同时处理加速度计和音频数据）
     let (aligned_acc_data, trimmed_audio_data, common_time_range_ms) = align_session_data_internal(&acc_data, &audio_data);
 
-    // 确保导出目录存在
-    let export_dir = "data_export";
-    if let Err(e) = std::fs::create_dir_all(export_dir) {
-        return Err(format!("Failed to create export directory: {}", e));
+    // 确保基础导出目录存在
+    let base_export_dir = "data_export";
+    if let Err(e) = std::fs::create_dir_all(base_export_dir) {
+        return Err(format!("Failed to create base export directory: {}", e));
+    }
+
+    // 创建用户名目录（如果用户名为空，则使用 "unknown_user"）
+    let user_dir = if username.is_empty() {
+        "unknown_user"
+    } else {
+        &username
+    };
+    
+    // 创建场景目录（如果场景为空，则使用 "standard"）
+    let scenario_dir = if scenario.is_empty() {
+        "standard"
+    } else {
+        &scenario
+    };
+    
+    let export_dir = format!("{}/{}/{}", base_export_dir, user_dir, scenario_dir);
+    if let Err(e) = std::fs::create_dir_all(&export_dir) {
+        return Err(format!("Failed to create user/scenario export directory: {}", e));
     }
 
     // 创建CSV文件
@@ -76,8 +102,8 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
         }
     }
 
-    info!("Successfully exported session {} to {} ({} rows, common time range: {}ms)", 
-          session_id, filename, row_count, common_time_range_ms);
+    info!("Successfully exported session {} for user '{}' in scenario '{}' to {} ({} rows, common time range: {}ms)", 
+          session_id, user_dir, scenario_dir, filename, row_count, common_time_range_ms);
     Ok(())
 }
 

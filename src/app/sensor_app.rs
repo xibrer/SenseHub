@@ -62,6 +62,7 @@ impl eframe::App for SensorDataApp {
 
         // 渲染UI组件
         crate::app::ui::render_status_bar(self, ctx);
+        crate::app::ui::render_bottom_status_bar(self, ctx);
         crate::app::ui::render_history_panel(self, ctx);
         crate::app::ui::render_main_panel(self, ctx);
         crate::app::ui::render_export_dialog(self, ctx);
@@ -121,13 +122,23 @@ impl SensorDataApp {
     }
 
     fn handle_history_results(&mut self) {
+        // Handle username list results
+        if let Some(receiver) = &self.state.history.usernames_result_receiver {
+            if let Ok(usernames) = receiver.try_recv() {
+                self.state.history.available_usernames = usernames;
+                self.state.history.loading_status = format!("Found {} users", self.state.history.available_usernames.len());
+                self.state.history.usernames_result_receiver = None; // Clear receiver
+                info!("Refreshed usernames: found {}", self.state.history.available_usernames.len());
+            }
+        }
+
         // Handle session list results
         if let Some(receiver) = &self.state.history.sessions_result_receiver {
             if let Ok(sessions) = receiver.try_recv() {
                 self.state.history.history_sessions = sessions;
-                self.state.history.loading_status = format!("Found {} history sessions", self.state.history.history_sessions.len());
+                self.state.history.loading_status = format!("Found {} history sessions for selected user", self.state.history.history_sessions.len());
                 self.state.history.sessions_result_receiver = None; // Clear receiver
-                info!("Refreshed history sessions: found {}", self.state.history.history_sessions.len());
+                info!("Refreshed history sessions for user: found {} sessions", self.state.history.history_sessions.len());
             }
         }
 
@@ -169,10 +180,9 @@ impl SensorDataApp {
                     self.state.history.loaded_history_data = acc_data.clone();
                     self.state.history.loaded_audio_data = audio_data.clone();
                     self.state.history.loading_status = format!(
-                        "Loaded aligned data: {} acc points, {} audio samples ({}ms common range)",
+                        "Loaded aligned data: {} acc points, {} audio samples",
                         self.state.history.loaded_history_data.len(),
-                        self.state.history.loaded_audio_data.len(),
-                        common_time_range_ms
+                        self.state.history.loaded_audio_data.len()
                     );
                 }
 
@@ -283,6 +293,8 @@ impl SensorDataApp {
             audio_start_timestamp,
             audio_end_timestamp,
             session_id: self.state.collection.current_session_id.clone(),
+            username: self.state.collection.username.clone(),
+            scenario: self.state.collection.scenario.clone(),
         };
 
         // 发送保存任务到后台线程

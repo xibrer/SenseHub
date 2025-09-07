@@ -32,8 +32,8 @@ pub fn run_database_handler(
         match task_receiver.recv_timeout(Duration::from_millis(100)) {
             Ok(task) => {
                 match task {
-                    DatabaseTask::Save { accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id } => {
-                        handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id);
+                    DatabaseTask::Save { accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id, username, scenario } => {
+                        handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id, username, scenario);
                     }
                     DatabaseTask::Export { export_type, response_sender } => {
                         let result = handle_export_request(&db_manager, export_type);
@@ -45,6 +45,24 @@ pub fn run_database_handler(
                         let sessions = db_manager.get_all_sessions().unwrap_or_default();
                         if let Err(e) = response_sender.try_send(sessions) {
                             warn!("Database handler: Failed to send sessions: {}", e);
+                        }
+                    }
+                    DatabaseTask::GetUnexportedSessions { response_sender } => {
+                        let sessions = db_manager.get_unexported_sessions().unwrap_or_default();
+                        if let Err(e) = response_sender.try_send(sessions) {
+                            warn!("Database handler: Failed to send unexported sessions: {}", e);
+                        }
+                    }
+                    DatabaseTask::GetUsernames { response_sender } => {
+                        let usernames = db_manager.get_all_usernames().unwrap_or_default();
+                        if let Err(e) = response_sender.try_send(usernames) {
+                            warn!("Database handler: Failed to send usernames: {}", e);
+                        }
+                    }
+                    DatabaseTask::GetSessionsByUsername { username, response_sender } => {
+                        let sessions = db_manager.get_sessions_by_username(&username).unwrap_or_default();
+                        if let Err(e) = response_sender.try_send(sessions) {
+                            warn!("Database handler: Failed to send sessions by username: {}", e);
                         }
                     }
                     DatabaseTask::CheckExported { session_id, response_sender } => {
@@ -92,6 +110,8 @@ fn handle_save_task(
     audio_start_timestamp: Option<i64>,
     audio_end_timestamp: Option<i64>,
     session_id: String,
+    username: String,
+    scenario: String,
 ) {
     let mut acc_saved = 0;
     let mut audio_saved = 0;
@@ -99,7 +119,7 @@ fn handle_save_task(
 
     // 保存加速度数据
     if !accelerometer_data.is_empty() {
-        match db_manager.save_accelerometer_data(&accelerometer_data, &session_id) {
+        match db_manager.save_accelerometer_data(&accelerometer_data, &session_id, &username, &scenario) {
             Ok(count) => {
                 acc_saved = count;
                 info!("Database handler: Saved {} accelerometer data points", count);
@@ -113,7 +133,7 @@ fn handle_save_task(
 
     // 保存音频数据
     if !audio_data.is_empty() && error_msg.is_none() {
-        match db_manager.save_audio_data(&audio_data, audio_metadata.as_ref(), &session_id, audio_start_timestamp, audio_end_timestamp) {
+        match db_manager.save_audio_data(&audio_data, audio_metadata.as_ref(), &session_id, audio_start_timestamp, audio_end_timestamp, &username) {
             Ok(count) => {
                 audio_saved = count;
                 info!("Database handler: Saved {} audio records", count);

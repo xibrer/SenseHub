@@ -93,31 +93,73 @@ fn render_panel_controls(app: &mut SensorDataApp, ui: &mut egui::Ui) {
 }
 
 fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
-    if app.state.history.history_sessions.is_empty() {
-        ui.label("No available history sessions");
-        return;
-    }
+    // First level: Username selection
+    ui.horizontal(|ui| {
+        ui.label("User:");
+        
+        let selected_username_text = app.state.history.selected_username
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("Select user...");
 
-    let selected_text = app.state.history.selected_session
-        .as_ref()
-        .map(|s| s.as_str())
-        .unwrap_or("Select session...");
+        egui::ComboBox::from_id_salt("username_selector")
+            .selected_text(selected_username_text)
+            .show_ui(ui, |ui| {
+                for username in &app.state.history.available_usernames.clone() {
+                    let response = ui.selectable_value(
+                        &mut app.state.history.selected_username,
+                        Some(username.clone()),
+                        username
+                    );
 
-    egui::ComboBox::from_label("Session")
-        .selected_text(selected_text)
-        .show_ui(ui, |ui| {
-            for session in &app.state.history.history_sessions.clone() {
-                let response = ui.selectable_value(
-                    &mut app.state.history.selected_session,
-                    Some(session.clone()),
-                    session
-                );
-
-                if response.clicked() {
-                    load_both_data_types(app, session);
+                    if response.clicked() {
+                        // Reset session selection when username changes
+                        app.state.history.selected_session = None;
+                        app.state.history.history_sessions.clear();
+                        // Load sessions for the selected username
+                        load_sessions_for_username(app, username);
+                    }
                 }
+            });
+    });
+
+    ui.add_space(5.0);
+    
+    // Second level: Session selection (only if username is selected)
+    if app.state.history.selected_username.is_some() {
+        let username = app.state.history.selected_username.clone().unwrap();
+        
+        ui.horizontal(|ui| {
+            ui.label("Session:");
+            
+            if app.state.history.history_sessions.is_empty() {
+                ui.label(format!("Loading sessions for {}...", username));
+            } else {
+                let selected_session_text = app.state.history.selected_session
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("Select session...");
+
+                egui::ComboBox::from_id_salt("session_selector")
+                    .selected_text(selected_session_text)
+                    .show_ui(ui, |ui| {
+                        for session in &app.state.history.history_sessions.clone() {
+                            let response = ui.selectable_value(
+                                &mut app.state.history.selected_session,
+                                Some(session.clone()),
+                                session
+                            );
+
+                            if response.clicked() {
+                                load_both_data_types(app, session);
+                            }
+                        }
+                    });
             }
         });
+    } else {
+        ui.label("Please select a user first");
+    }
 }
 
 fn render_display_options(app: &mut SensorDataApp, ui: &mut egui::Ui) {
@@ -326,18 +368,36 @@ fn render_history_audio(ui: &mut egui::Ui, title: &str, audio_data: &[f64], colo
 }
 
 // Helper function: refresh history sessions list
-fn refresh_history_sessions(app: &mut SensorDataApp) {
+pub fn refresh_history_sessions(app: &mut SensorDataApp) {
     use crate::types::DatabaseTask;
 
-    app.state.history.loading_status = "Refreshing sessions list...".to_string();
+    app.state.history.loading_status = "Refreshing users list...".to_string();
 
     let (sender, receiver) = crossbeam_channel::unbounded();
-    let task = DatabaseTask::GetSessions { response_sender: sender };
+    let task = DatabaseTask::GetUsernames { response_sender: sender };
+
+    if let Ok(()) = app.state.database.db_task_sender.try_send(task) {
+        app.state.history.usernames_result_receiver = Some(receiver);
+    } else {
+        app.state.history.loading_status = "Unable to send usernames query request".to_string();
+    }
+}
+
+fn load_sessions_for_username(app: &mut SensorDataApp, username: &str) {
+    use crate::types::DatabaseTask;
+
+    app.state.history.loading_status = format!("Loading sessions for user: {}", username);
+
+    let (sender, receiver) = crossbeam_channel::unbounded();
+    let task = DatabaseTask::GetSessionsByUsername { 
+        username: username.to_string(),
+        response_sender: sender 
+    };
 
     if let Ok(()) = app.state.database.db_task_sender.try_send(task) {
         app.state.history.sessions_result_receiver = Some(receiver);
     } else {
-        app.state.history.loading_status = "Unable to send session query request".to_string();
+        app.state.history.loading_status = "Unable to send sessions query request".to_string();
     }
 }
 

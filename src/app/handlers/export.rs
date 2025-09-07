@@ -7,15 +7,15 @@ pub struct ExportHandler;
 impl ExportHandler {
     pub fn refresh_sessions(app: &mut SensorDataApp) {
         let (response_sender, response_receiver) = crossbeam_channel::bounded(1);
-        let task = DatabaseTask::GetSessions { response_sender };
+        let task = DatabaseTask::GetUnexportedSessions { response_sender };
         
         match app.state.database.db_task_sender.try_send(task) {
             Ok(()) => {
-                app.state.export.export_status = "Refreshing sessions...".to_string();
+                app.state.export.export_status = "Refreshing unexported sessions...".to_string();
                 app.state.export.sessions_result_receiver = Some(response_receiver);
             }
             Err(e) => {
-                app.state.export.export_status = format!("Failed to request sessions: {}", e);
+                app.state.export.export_status = format!("Failed to request unexported sessions: {}", e);
             }
         }
     }

@@ -10,12 +10,24 @@ pub enum DatabaseTask {
         audio_start_timestamp: Option<i64>,
         audio_end_timestamp: Option<i64>,
         session_id: String,
+        username: String,
+        scenario: String,
     },
     Export {
         export_type: ExportType,
         response_sender: crossbeam_channel::Sender<ExportResult>,
     },
     GetSessions {
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
+    GetUnexportedSessions {
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
+    GetUsernames {
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
+    GetSessionsByUsername {
+        username: String,
         response_sender: crossbeam_channel::Sender<Vec<String>>,
     },
     CheckExported {
