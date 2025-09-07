@@ -20,6 +20,8 @@ pub struct AppConfig {
 pub struct WindowConfig {
     pub width: f32,
     pub height: f32,
+    pub x: Option<f32>,  // 窗口x坐标，None表示居中
+    pub y: Option<f32>,  // 窗口y坐标，None表示居中
     pub title: String,
     pub resizable: bool,
     pub vsync: bool,
@@ -61,6 +63,7 @@ pub struct PlotConfig {
     pub show_axes: bool,
     pub allow_drag: bool,
     pub allow_zoom: bool,
+    pub show_gyroscope: bool,  // 是否显示陀螺仪数据
     pub colors: PlotColors,
 }
 
@@ -70,6 +73,9 @@ pub struct PlotColors {
     pub x_axis: [u8; 3],
     pub y_axis: [u8; 3],
     pub z_axis: [u8; 3],
+    pub gyro_x: [u8; 3],  // 陀螺仪X轴颜色
+    pub gyro_y: [u8; 3],  // 陀螺仪Y轴颜色
+    pub gyro_z: [u8; 3],  // 陀螺仪Z轴颜色
     pub audio: [u8; 3],
 }
 
@@ -108,7 +114,9 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             width: 1200.0,
-            height: 800.0,
+            height: 1000.0,  // 增加50%：800 * 1.5 = 1200
+            x: None,  // 水平居中
+            y: Some(30.0),  // 设置在屏幕中上方，距离顶部100像素
             title: "SenseHub - Sensor Data Viewer".to_string(),
             resizable: true,
             vsync: true,
@@ -158,6 +166,7 @@ impl Default for PlotConfig {
             show_axes: false,
             allow_drag: false,
             allow_zoom: false,
+            show_gyroscope: true,  // 默认显示陀螺仪数据
             colors: PlotColors::default(),
         }
     }
@@ -166,10 +175,13 @@ impl Default for PlotConfig {
 impl Default for PlotColors {
     fn default() -> Self {
         Self {
-            x_axis: [255, 0, 0],    // 红色
-            y_axis: [0, 255, 0],    // 绿色
-            z_axis: [0, 0, 255],    // 蓝色
-            audio: [128, 0, 128],   // 紫色
+            x_axis: [255, 0, 0],      // 红色
+            y_axis: [0, 255, 0],      // 绿色
+            z_axis: [0, 0, 255],      // 蓝色
+            gyro_x: [255, 165, 0],    // 橙色
+            gyro_y: [255, 20, 147],   // 深粉色
+            gyro_z: [0, 255, 255],    // 青色
+            audio: [128, 0, 128],     // 紫色
         }
     }
 }

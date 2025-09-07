@@ -1,6 +1,7 @@
 use egui_plot::{Line, Plot, PlotPoints};
 use egui::Color32;
 use std::collections::VecDeque;
+use crate::config::PlotConfig;
 
 /// 格式化数字为固定宽度的 y 轴标签
 fn format_fixed_width_y_label(value: f64) -> String {
@@ -38,6 +39,9 @@ pub struct WaveformPlot {
     buffer_x: VecDeque<f64>,
     buffer_y: VecDeque<f64>,
     buffer_z: VecDeque<f64>,
+    buffer_gx: VecDeque<f64>,  // 陀螺仪 X 轴缓冲区
+    buffer_gy: VecDeque<f64>,  // 陀螺仪 Y 轴缓冲区
+    buffer_gz: VecDeque<f64>,  // 陀螺仪 Z 轴缓冲区
     buffer_timestamp: VecDeque<i64>, // 添加时间戳缓冲区
     audio_buffer: VecDeque<f64>,
     audio_timestamps: VecDeque<i64>, // 添加音频时间戳缓冲区
@@ -62,6 +66,9 @@ impl WaveformPlot {
             buffer_x: VecDeque::with_capacity(max_samples),
             buffer_y: VecDeque::with_capacity(max_samples),
             buffer_z: VecDeque::with_capacity(max_samples),
+            buffer_gx: VecDeque::with_capacity(max_samples),  // 初始化陀螺仪缓冲区
+            buffer_gy: VecDeque::with_capacity(max_samples),
+            buffer_gz: VecDeque::with_capacity(max_samples),
             buffer_timestamp: VecDeque::with_capacity(max_samples), // 初始化时间戳缓冲区
             audio_buffer: VecDeque::with_capacity(audio_max_samples),
             audio_timestamps: VecDeque::with_capacity(audio_max_samples), // 初始化音频时间戳缓冲区
@@ -72,11 +79,14 @@ impl WaveformPlot {
         }
     }
 
-    pub fn add_data(&mut self, x: f64, y: f64, z: f64, timestamp: i64) {
+    pub fn add_data(&mut self, x: f64, y: f64, z: f64, gx: f64, gy: f64, gz: f64, timestamp: i64) {
         // 将新数据添加到缓冲区末尾
         self.buffer_x.push_back(x);
         self.buffer_y.push_back(y);
         self.buffer_z.push_back(z);
+        self.buffer_gx.push_back(gx);
+        self.buffer_gy.push_back(gy);
+        self.buffer_gz.push_back(gz);
         self.buffer_timestamp.push_back(timestamp);
 
         // 如果超过最大样本数，移除最旧的数据（从前面移除）- O(1)操作
@@ -84,6 +94,9 @@ impl WaveformPlot {
             self.buffer_x.pop_front();
             self.buffer_y.pop_front();
             self.buffer_z.pop_front();
+            self.buffer_gx.pop_front();
+            self.buffer_gy.pop_front();
+            self.buffer_gz.pop_front();
             self.buffer_timestamp.pop_front();
         }
     }
@@ -112,15 +125,37 @@ impl WaveformPlot {
         }
     }
 
-    pub fn ui(&self, ui: &mut egui::Ui) {
+    pub fn ui(&self, ui: &mut egui::Ui, config: &PlotConfig) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.vertical(|ui| {
-                self.plot_axis(ui, "X Axis", &self.buffer_x, Color32::RED);
-                self.plot_axis(ui, "Y Axis", &self.buffer_y, Color32::GREEN);
-                self.plot_axis(ui, "Z Axis", &self.buffer_z, Color32::BLUE);
+                // 加速度计数据显示
+                ui.heading("Accelerometer");
+                self.plot_axis(ui, "ACC X Axis", &self.buffer_x, 
+                    Color32::from_rgb(config.colors.x_axis[0], config.colors.x_axis[1], config.colors.x_axis[2]));
+                self.plot_axis(ui, "ACC Y Axis", &self.buffer_y, 
+                    Color32::from_rgb(config.colors.y_axis[0], config.colors.y_axis[1], config.colors.y_axis[2]));
+                self.plot_axis(ui, "ACC Z Axis", &self.buffer_z, 
+                    Color32::from_rgb(config.colors.z_axis[0], config.colors.z_axis[1], config.colors.z_axis[2]));
+
+                ui.separator();
+                
+                // 陀螺仪数据显示（可选）
+                if config.show_gyroscope {
+                    ui.heading("Gyroscope");
+                    self.plot_axis(ui, "GYRO X Axis", &self.buffer_gx, 
+                        Color32::from_rgb(config.colors.gyro_x[0], config.colors.gyro_x[1], config.colors.gyro_x[2]));
+                    self.plot_axis(ui, "GYRO Y Axis", &self.buffer_gy, 
+                        Color32::from_rgb(config.colors.gyro_y[0], config.colors.gyro_y[1], config.colors.gyro_y[2]));
+                    self.plot_axis(ui, "GYRO Z Axis", &self.buffer_gz, 
+                        Color32::from_rgb(config.colors.gyro_z[0], config.colors.gyro_z[1], config.colors.gyro_z[2]));
+
+                    ui.separator();
+                }
 
                 // 添加音频波形显示
-                self.plot_audio(ui, "Audio Waveform", &self.audio_buffer, Color32::PURPLE);
+                ui.heading("Audio");
+                self.plot_audio(ui, "Audio Waveform", &self.audio_buffer, 
+                    Color32::from_rgb(config.colors.audio[0], config.colors.audio[1], config.colors.audio[2]));
             });
         });
     }
@@ -141,7 +176,7 @@ impl WaveformPlot {
         let y_max = y_max + range * 0.05;
 
         Plot::new(title)
-            .height(150.0)
+            .height(100.0)
             .x_axis_formatter(|v, _| format!("{:.1}s", v.value))
             .y_axis_formatter(|v, _| format_fixed_width_y_label(v.value))
             .show_x(false)
@@ -193,7 +228,7 @@ impl WaveformPlot {
         let y_max = y_max + range * 0.05;
 
         Plot::new(title)
-            .height(150.0)
+            .height(100.0)
             .x_axis_formatter(|v, _| format!("{:.2}s", v.value))
             .y_axis_formatter(|v, _| format_fixed_width_y_label(v.value))
             .show_x(false)
@@ -230,16 +265,19 @@ impl WaveformPlot {
     }
 
     // 获取当前缓冲区数据的方法
-    pub fn get_current_accelerometer_data(&self) -> Vec<(f64, f64, f64, i64)> {
+    pub fn get_current_accelerometer_data(&self) -> Vec<(f64, f64, f64, f64, f64, f64, i64)> {
         let mut data = Vec::new();
         for i in 0..self.buffer_x.len() {
-            if let (Some(&x), Some(&y), Some(&z), Some(&timestamp)) = (
+            if let (Some(&x), Some(&y), Some(&z), Some(&gx), Some(&gy), Some(&gz), Some(&timestamp)) = (
                 self.buffer_x.get(i),
                 self.buffer_y.get(i),
                 self.buffer_z.get(i),
+                self.buffer_gx.get(i),
+                self.buffer_gy.get(i),
+                self.buffer_gz.get(i),
                 self.buffer_timestamp.get(i)
             ) {
-                data.push((x, y, z, timestamp));
+                data.push((x, y, z, gx, gy, gz, timestamp));
             }
         }
         data

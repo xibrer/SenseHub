@@ -1,6 +1,6 @@
 use std::time::Duration;
 use eframe::{egui, Frame};
-use log::{info, error};
+use log::{info, error, warn};
 
 use crate::types::{DataPoint, AudioData, DatabaseTask, SaveResult};
 use crate::database::generate_session_id;
@@ -36,10 +36,17 @@ impl SensorDataApp {
         // 初始化会话ID
         state.collection.current_session_id = generate_session_id();
 
-        let app = SensorDataApp {
+        let mut app = SensorDataApp {
             state,
             config,
         };
+
+        // 加载文本文件
+        if let Err(e) = app.state.load_text_file("documents/chinese.txt") {
+            warn!("Failed to load text file: {}", e);
+        } else {
+            info!("Text file loaded successfully");
+        }
 
         // 打印启动信息
         info!("应用启动，等待数据到达开始校准...");
@@ -208,13 +215,26 @@ impl SensorDataApp {
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Space) {
-                if self.state.collection.is_collecting && !self.state.collection.is_paused {
+                // 如果文本阅读器启用，处理文本切换
+                if self.state.text_reader.is_enabled {
+                    self.state.next_text_line();
+                } else if self.state.collection.is_collecting && !self.state.collection.is_paused {
                     self.save_current_window_data_async();
                 } else if self.state.collection.is_paused {
                     self.state.collection.save_status = "Data collection is paused".to_string();
                 } else {
                     self.state.collection.save_status = "Not collecting data".to_string();
                 }
+            }
+            
+            // 左箭头键 - 上一行文本
+            if i.key_pressed(egui::Key::ArrowLeft) && self.state.text_reader.is_enabled {
+                self.state.previous_text_line();
+            }
+            
+            // 右箭头键 - 下一行文本  
+            if i.key_pressed(egui::Key::ArrowRight) && self.state.text_reader.is_enabled {
+                self.state.next_text_line();
             }
         });
     }
@@ -232,10 +252,13 @@ impl SensorDataApp {
         // 转换加速度数据为DataPoint格式，使用发送过来的真实时间戳
         let acc_points: Vec<DataPoint> = acc_data
             .into_iter()
-            .map(|(x, y, z, timestamp)| DataPoint {
+            .map(|(x, y, z, gx, gy, gz, timestamp)| DataPoint {
                 x,
                 y,
                 z,
+                gx,
+                gy,
+                gz,
                 timestamp, // 直接使用发送过来的时间戳
             })
             .collect();

@@ -33,7 +33,7 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
         .map_err(|e| format!("Failed to create file: {}", e))?;
 
     // 写入CSV头部
-    writeln!(file, "acc_x,acc_y,acc_z,audio_sample")
+    writeln!(file, "acc_x,acc_y,acc_z,gyro_x,gyro_y,gyro_z,audio_sample")
         .map_err(|e| format!("Failed to write CSV header: {}", e))?;
 
     // 收集所有音频样本到一个向量中
@@ -52,7 +52,7 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
     for i in 0..min_rows {
         let point = &aligned_acc_data[i];
         let audio_sample = all_audio_samples[i];
-        writeln!(file, "{},{},{},{}", point.x, point.y, point.z, audio_sample)
+        writeln!(file, "{},{},{},{},{},{},{}", point.x, point.y, point.z, point.gx, point.gy, point.gz, audio_sample)
             .map_err(|e| format!("Failed to write combined data: {}", e))?;
         row_count += 1;
     }
@@ -62,7 +62,7 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
         // 加速度计数据更多，继续写入剩余的加速度计数据
         for i in min_rows..acc_count {
             let point = &aligned_acc_data[i];
-            writeln!(file, "{},{},{},", point.x, point.y, point.z)
+            writeln!(file, "{},{},{},{},{},{},", point.x, point.y, point.z, point.gx, point.gy, point.gz)
                 .map_err(|e| format!("Failed to write remaining ACC data: {}", e))?;
             row_count += 1;
         }
@@ -70,7 +70,7 @@ pub fn export_session_to_csv_internal(db_manager: &DatabaseManager, session_id: 
         // 音频数据更多，继续写入剩余的音频数据
         for i in min_rows..audio_count {
             let audio_sample = all_audio_samples[i];
-            writeln!(file, ",,{}", audio_sample)
+            writeln!(file, ",,,,,,{}", audio_sample)
                 .map_err(|e| format!("Failed to write remaining audio data: {}", e))?;
             row_count += 1;
         }
@@ -146,6 +146,9 @@ pub fn align_session_data_internal(
                     x: first_point.x,  // 使用第一个点的x值
                     y: first_point.y,  // 使用第一个点的y值
                     z: first_point.z,  // 使用第一个点的z值
+                    gx: first_point.gx, // 使用第一个点的gx值
+                    gy: first_point.gy, // 使用第一个点的gy值
+                    gz: first_point.gz, // 使用第一个点的gz值
                     timestamp,
                 });
             }
@@ -180,6 +183,9 @@ pub fn align_session_data_internal(
                     x: last_point.x,   // 使用最后一个点的x值
                     y: last_point.y,   // 使用最后一个点的y值
                     z: last_point.z,   // 使用最后一个点的z值
+                    gx: last_point.gx,  // 使用最后一个点的gx值
+                    gy: last_point.gy,  // 使用最后一个点的gy值
+                    gz: last_point.gz,  // 使用最后一个点的gz值
                     timestamp,
                 });
             }

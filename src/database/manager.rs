@@ -33,6 +33,7 @@ impl DatabaseManager {
             [],
         )?;
         
+        // 首先尝试创建表（如果不存在）
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS accelerometer_data (
                 id INTEGER PRIMARY KEY DEFAULT nextval('accelerometer_data_seq'),
@@ -45,6 +46,9 @@ impl DatabaseManager {
             )",
             [],
         )?;
+
+        // 然后执行迁移，添加陀螺仪列（如果不存在）
+        self.migrate_accelerometer_table()?;
 
         // 创建音频数据表
         self.conn.execute(
@@ -72,6 +76,42 @@ impl DatabaseManager {
         Ok(())
     }
 
+    fn migrate_accelerometer_table(&self) -> DuckResult<()> {
+        // 检查是否需要添加陀螺仪列
+        let has_gyro_columns = self.check_gyro_columns_exist()?;
+        
+        if !has_gyro_columns {
+            info!("Adding gyroscope columns to accelerometer_data table");
+            
+            // 添加陀螺仪列
+            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gx DOUBLE DEFAULT 0.0", [])?;
+            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gy DOUBLE DEFAULT 0.0", [])?;
+            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gz DOUBLE DEFAULT 0.0", [])?;
+            
+            info!("Successfully added gyroscope columns");
+        } else {
+            info!("Gyroscope columns already exist in accelerometer_data table");
+        }
+        
+        Ok(())
+    }
+
+    fn check_gyro_columns_exist(&self) -> DuckResult<bool> {
+        // 尝试查询陀螺仪列，如果出错说明列不存在
+        let result = self.conn.execute("SELECT gx, gy, gz FROM accelerometer_data LIMIT 1", []);
+        
+        match result {
+            Ok(_) => {
+                info!("Gyroscope columns found in database");
+                Ok(true)
+            },
+            Err(_) => {
+                info!("Gyroscope columns not found in database");
+                Ok(false)
+            }
+        }
+    }
+
     pub fn save_accelerometer_data(&self, data: &[DataPoint], session_id: &str) -> DuckResult<usize> {
         if data.is_empty() {
             warn!("No accelerometer data to save");
@@ -79,8 +119,8 @@ impl DatabaseManager {
         }
 
         let mut stmt = self.conn.prepare(
-            "INSERT INTO accelerometer_data (timestamp_ms, x, y, z, session_id) 
-             VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO accelerometer_data (timestamp_ms, x, y, z, gx, gy, gz, session_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )?;
 
         let mut count = 0;
@@ -91,6 +131,9 @@ impl DatabaseManager {
                 point.x,
                 point.y,
                 point.z,
+                point.gx,
+                point.gy,
+                point.gz,
                 session_id
             ])?;
             count += 1;
@@ -194,7 +237,7 @@ impl DatabaseManager {
         let mut data = Vec::new();
         
         let mut stmt = self.conn.prepare(
-            "SELECT timestamp_ms, x, y, z FROM accelerometer_data 
+            "SELECT timestamp_ms, x, y, z, gx, gy, gz FROM accelerometer_data 
              WHERE session_id = ? 
              ORDER BY timestamp_ms"
         )?;
@@ -205,6 +248,9 @@ impl DatabaseManager {
                 x: row.get::<_, f64>(1)?,
                 y: row.get::<_, f64>(2)?,
                 z: row.get::<_, f64>(3)?,
+                gx: row.get::<_, f64>(4)?,
+                gy: row.get::<_, f64>(5)?,
+                gz: row.get::<_, f64>(6)?,
             })
         })?;
         

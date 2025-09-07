@@ -64,6 +64,9 @@ pub struct HistoryDisplayOptions {
     pub show_x_axis: bool,
     pub show_y_axis: bool,
     pub show_z_axis: bool,
+    pub show_gx_axis: bool,
+    pub show_gy_axis: bool,
+    pub show_gz_axis: bool,
     pub show_audio: bool,
 }
 
@@ -73,6 +76,9 @@ impl Default for HistoryDisplayOptions {
             show_x_axis: true,
             show_y_axis: true,
             show_z_axis: true,
+            show_gx_axis: false,  // 默认不显示陀螺仪，避免界面过于拥挤
+            show_gy_axis: false,
+            show_gz_axis: false,
             show_audio: true,
         }
     }
@@ -152,6 +158,28 @@ pub struct DataChannels {
     pub audio_receiver: Receiver<AudioData>,
 }
 
+/// 文本阅读器状态
+#[derive(Debug, Clone)]
+pub struct TextReaderState {
+    pub lines: Vec<String>,
+    pub current_line_index: usize,
+    pub current_text: String,
+    pub is_enabled: bool,
+    pub file_loaded: bool,
+}
+
+impl Default for TextReaderState {
+    fn default() -> Self {
+        Self {
+            lines: Vec::new(),
+            current_line_index: 0,
+            current_text: String::new(),
+            is_enabled: false,
+            file_loaded: false,
+        }
+    }
+}
+
 /// 统一的应用状态管理
 #[derive(Debug)]
 pub struct AppState {
@@ -162,6 +190,7 @@ pub struct AppState {
     pub database: DatabaseState,
     pub channels: DataChannels,
     pub waveform_plot: WaveformPlot,
+    pub text_reader: TextReaderState,
 }
 
 impl AppState {
@@ -189,6 +218,7 @@ impl AppState {
                 audio_receiver,
             },
             waveform_plot: WaveformPlot::new(initial_sample_rate),
+            text_reader: TextReaderState::default(),
         }
     }
 
@@ -264,5 +294,54 @@ impl AppState {
     /// 检查是否正在活跃采集（采集中且未暂停）
     pub fn is_actively_collecting(&self) -> bool {
         self.collection.is_collecting && !self.collection.is_paused
+    }
+
+    /// 加载文本文件
+    pub fn load_text_file(&mut self, file_path: &str) -> Result<(), String> {
+        use std::fs;
+        match fs::read_to_string(file_path) {
+            Ok(content) => {
+                self.text_reader.lines = content.lines().map(|s| s.to_string()).collect();
+                self.text_reader.current_line_index = 0;
+                self.text_reader.file_loaded = true;
+                if !self.text_reader.lines.is_empty() {
+                    self.text_reader.current_text = self.text_reader.lines[0].clone();
+                }
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to load file: {}", e))
+        }
+    }
+
+    /// 切换到下一行文本
+    pub fn next_text_line(&mut self) {
+        if !self.text_reader.file_loaded || self.text_reader.lines.is_empty() {
+            return;
+        }
+        
+        if self.text_reader.current_line_index + 1 < self.text_reader.lines.len() {
+            self.text_reader.current_line_index += 1;
+            self.text_reader.current_text = self.text_reader.lines[self.text_reader.current_line_index].clone();
+        }
+    }
+
+    /// 切换到上一行文本
+    pub fn previous_text_line(&mut self) {
+        if !self.text_reader.file_loaded || self.text_reader.lines.is_empty() {
+            return;
+        }
+        
+        if self.text_reader.current_line_index > 0 {
+            self.text_reader.current_line_index -= 1;
+            self.text_reader.current_text = self.text_reader.lines[self.text_reader.current_line_index].clone();
+        }
+    }
+
+    /// 获取当前文本行信息
+    pub fn get_text_info(&self) -> String {
+        if !self.text_reader.file_loaded {
+            return "No file loaded".to_string();
+        }
+        format!("{}/{}", self.text_reader.current_line_index + 1, self.text_reader.lines.len())
     }
 }

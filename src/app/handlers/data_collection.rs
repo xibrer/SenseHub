@@ -9,7 +9,7 @@ impl DataCollectionHandler {
         while let Ok(data) = app.state.channels.data_receiver.try_recv() {
             // info!("ACC data - x: {:.3}, y: {:.3}, z: {:.3}, time: {}", 
             //       data.x, data.y, data.z, format_timestamp(data.timestamp));
-            app.state.waveform_plot.add_data(data.x, data.y, data.z, data.timestamp);
+            app.state.waveform_plot.add_data(data.x, data.y, data.z, data.gx, data.gy, data.gz, data.timestamp);
         }
         
         // 处理音频数据

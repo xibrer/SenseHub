@@ -123,9 +123,20 @@ fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
 fn render_display_options(app: &mut SensorDataApp, ui: &mut egui::Ui) {
     ui.label("Display Options:");
     ui.horizontal(|ui| {
+        ui.label("加速度计:");
         ui.checkbox(&mut app.state.history.display_options.show_x_axis, "X-Axis");
         ui.checkbox(&mut app.state.history.display_options.show_y_axis, "Y-Axis");
         ui.checkbox(&mut app.state.history.display_options.show_z_axis, "Z-Axis");
+    });
+    
+    ui.horizontal(|ui| {
+        ui.label("陀螺仪:");
+        ui.checkbox(&mut app.state.history.display_options.show_gx_axis, "GX-Axis");
+        ui.checkbox(&mut app.state.history.display_options.show_gy_axis, "GY-Axis");
+        ui.checkbox(&mut app.state.history.display_options.show_gz_axis, "GZ-Axis");
+    });
+    
+    ui.horizontal(|ui| {
         ui.checkbox(&mut app.state.history.display_options.show_audio, "Audio");
     });
 
@@ -196,15 +207,28 @@ fn render_history_visualization(app: &mut SensorDataApp, ui: &mut egui::Ui) {
         .show(ui, |ui| {
             // Render accelerometer data
             if app.state.history.display_options.show_x_axis {
-                render_history_axis(ui, "X-Axis History", &app.state.history.loaded_history_data, |dp| dp.x, Color32::RED);
+                render_history_axis(ui, "ACC X-Axis History", &app.state.history.loaded_history_data, |dp| dp.x, Color32::RED);
             }
 
             if app.state.history.display_options.show_y_axis {
-                render_history_axis(ui, "Y-Axis History", &app.state.history.loaded_history_data, |dp| dp.y, Color32::GREEN);
+                render_history_axis(ui, "ACC Y-Axis History", &app.state.history.loaded_history_data, |dp| dp.y, Color32::GREEN);
             }
 
             if app.state.history.display_options.show_z_axis {
-                render_history_axis(ui, "Z-Axis History", &app.state.history.loaded_history_data, |dp| dp.z, Color32::BLUE);
+                render_history_axis(ui, "ACC Z-Axis History", &app.state.history.loaded_history_data, |dp| dp.z, Color32::BLUE);
+            }
+
+            // Render gyroscope data
+            if app.state.history.display_options.show_gx_axis {
+                render_history_axis(ui, "GYRO X-Axis History", &app.state.history.loaded_history_data, |dp| dp.gx, Color32::from_rgb(255, 165, 0));
+            }
+
+            if app.state.history.display_options.show_gy_axis {
+                render_history_axis(ui, "GYRO Y-Axis History", &app.state.history.loaded_history_data, |dp| dp.gy, Color32::from_rgb(255, 20, 147));
+            }
+
+            if app.state.history.display_options.show_gz_axis {
+                render_history_axis(ui, "GYRO Z-Axis History", &app.state.history.loaded_history_data, |dp| dp.gz, Color32::from_rgb(0, 255, 255));
             }
 
             // Render audio data

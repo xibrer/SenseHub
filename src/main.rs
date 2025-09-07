@@ -20,6 +20,56 @@ use mqtt::run_mqtt_client;
 use app::SensorDataApp;
 use config::ConfigManager;
 
+fn setup_custom_fonts(ctx: &egui::Context) {
+    // 配置字体以支持中文显示
+    let mut fonts = egui::FontDefinitions::default();
+    
+    // 尝试加载系统中文字体
+    let mut chinese_font_loaded = false;
+    
+    // 尝试不同的Windows中文字体路径
+    let font_paths = [
+        "C:/Windows/Fonts/msyh.ttc",      // 微软雅黑
+        "C:/Windows/Fonts/simhei.ttf",    // 黑体  
+        "C:/Windows/Fonts/simsun.ttc",    // 宋体
+        "C:/Windows/Fonts/simkai.ttf",    // 楷体
+    ];
+    
+    for (index, path) in font_paths.iter().enumerate() {
+        if let Ok(font_data) = std::fs::read(path) {
+            let font_name = format!("chinese_font_{}", index);
+            fonts.font_data.insert(
+                font_name.clone(),
+                egui::FontData::from_owned(font_data).into(),
+            );
+            
+            // 将中文字体插入到字体族的开头
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, font_name.clone());
+                
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .insert(0, font_name);
+                
+            chinese_font_loaded = true;
+            log::info!("Successfully loaded Chinese font: {}", path);
+            break;
+        }
+    }
+    
+    if !chinese_font_loaded {
+        log::warn!("Could not load system Chinese fonts, Chinese text may not display correctly");
+    }
+
+    // 设置字体
+    ctx.set_fonts(fonts);
+}
+
 fn main() {
     // 初始化日志系统
     logger::init_logger();
@@ -101,6 +151,21 @@ fn run_gui_application(
     save_result_receiver: crossbeam_channel::Receiver<SaveResult>,
     config: &config::AppConfig,
 ) -> Result<(), eframe::Error> {
+    let mut viewport_builder = egui::ViewportBuilder::default()
+        .with_inner_size([config.window.width, config.window.height])
+        .with_resizable(config.window.resizable);
+    
+    // 如果配置了窗口位置，则设置位置
+    if let (Some(x), Some(y)) = (config.window.x, config.window.y) {
+        viewport_builder = viewport_builder.with_position([x, y]);
+    } else if let Some(y) = config.window.y {
+        // 如果只设置了y坐标，x坐标居中
+        viewport_builder = viewport_builder.with_position([
+            (1920.0 - config.window.width) / 2.0,  // 假设屏幕宽度1920，居中显示
+            y
+        ]);
+    }
+
     let options = eframe::NativeOptions {
         vsync: config.window.vsync,
         hardware_acceleration: if config.window.hardware_acceleration {
@@ -109,16 +174,17 @@ fn run_gui_application(
             eframe::HardwareAcceleration::Off
         },
         renderer: eframe::Renderer::Glow,
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([config.window.width, config.window.height])
-            .with_resizable(config.window.resizable),
+        viewport: viewport_builder,
         ..Default::default()
     };
 
     eframe::run_native(
         &config.window.title,
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            // 配置中文字体
+            setup_custom_fonts(&cc.egui_ctx);
+            
             Ok(Box::new(SensorDataApp::new(
                 data_receiver,
                 audio_receiver,
