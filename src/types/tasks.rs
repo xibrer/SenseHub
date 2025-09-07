@@ -22,14 +22,6 @@ pub enum DatabaseTask {
         session_id: String,
         response_sender: crossbeam_channel::Sender<bool>,
     },
-    LoadHistoryData {
-        session_id: String,
-        response_sender: crossbeam_channel::Sender<(Vec<DataPoint>, Vec<f64>)>,
-    },
-    LoadAlignedHistoryData {
-        session_id: String,
-        response_sender: crossbeam_channel::Sender<(Vec<DataPoint>, Vec<f64>, i64)>,
-    },
 }
 
 /// Export type specification

@@ -53,18 +53,6 @@ pub fn run_database_handler(
                             warn!("Database handler: Failed to send export status: {}", e);
                         }
                     }
-                    DatabaseTask::LoadHistoryData { session_id, response_sender } => {
-                        let result = handle_load_history_data(&db_manager, &session_id);
-                        if let Err(e) = response_sender.try_send(result) {
-                            warn!("Database handler: Failed to send history data: {}", e);
-                        }
-                    }
-                    DatabaseTask::LoadAlignedHistoryData { session_id, response_sender } => {
-                        let result = handle_load_aligned_history_data(&db_manager, &session_id);
-                        if let Err(e) = response_sender.try_send(result) {
-                            warn!("Database handler: Failed to send aligned history data: {}", e);
-                        }
-                    }
                 }
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -217,83 +205,4 @@ fn handle_new_sessions_export(db_manager: &DatabaseManager) -> ExportResult {
             message: format!("Failed to get sessions: {}", e),
         }
     }
-}
-
-fn handle_load_history_data(db_manager: &DatabaseManager, session_id: &str) -> (Vec<DataPoint>, Vec<f64>) {
-    let mut acc_data = Vec::new();
-    let mut audio_data = Vec::new();
-
-    // 加载加速度数据
-    match db_manager.get_accelerometer_data_by_session(session_id) {
-        Ok(data) => {
-            acc_data = data;
-            info!("Database handler: Loaded {} accelerometer points for session {}", acc_data.len(), session_id);
-        }
-        Err(e) => {
-            error!("Database handler: Failed to load accelerometer data for session {}: {}", session_id, e);
-        }
-    }
-
-    // 加载音频数据
-    match db_manager.get_audio_data_by_session(session_id) {
-        Ok(data) => {
-            // 将所有音频片段的样本合并到一个向量中
-            for (_, _, samples, _, _, _) in data {
-                audio_data.extend(samples);
-            }
-            info!("Database handler: Loaded {} audio samples for session {}", audio_data.len(), session_id);
-        }
-        Err(e) => {
-            error!("Database handler: Failed to load audio data for session {}: {}", session_id, e);
-        }
-    }
-
-    (acc_data, audio_data)
-}
-
-fn handle_load_aligned_history_data(db_manager: &DatabaseManager, session_id: &str) -> (Vec<DataPoint>, Vec<f64>, i64) {
-    let mut acc_data = Vec::new();
-    let mut audio_data_raw = Vec::new();
-
-    // 加载原始加速度数据
-    match db_manager.get_accelerometer_data_by_session(session_id) {
-        Ok(data) => {
-            acc_data = data;
-            info!("Database handler: Loaded {} raw accelerometer points for session {}", acc_data.len(), session_id);
-        }
-        Err(e) => {
-            error!("Database handler: Failed to load accelerometer data for session {}: {}", session_id, e);
-        }
-    }
-
-    // 加载原始音频数据
-    match db_manager.get_audio_data_by_session(session_id) {
-        Ok(data) => {
-            audio_data_raw = data;
-            info!("Database handler: Loaded {} raw audio blocks for session {}", audio_data_raw.len(), session_id);
-        }
-        Err(e) => {
-            error!("Database handler: Failed to load audio data for session {}: {}", session_id, e);
-        }
-    }
-
-    // 如果没有数据，返回空结果
-    if acc_data.is_empty() && audio_data_raw.is_empty() {
-        return (Vec::new(), Vec::new(), 0);
-    }
-
-    // 使用对齐算法处理数据
-    let (aligned_acc_data, aligned_audio_data, common_time_range_ms) = 
-        crate::database::tasks::align_session_data_internal(&acc_data, &audio_data_raw);
-
-    // 将对齐后的音频数据合并到一个向量中
-    let mut final_audio_data = Vec::new();
-    for (_, _, samples, _, _, _) in aligned_audio_data {
-        final_audio_data.extend(samples);
-    }
-
-    info!("Database handler: Aligned data - {} acc points, {} audio samples, {}ms common range", 
-          aligned_acc_data.len(), final_audio_data.len(), common_time_range_ms);
-
-    (aligned_acc_data, final_audio_data, common_time_range_ms)
 }

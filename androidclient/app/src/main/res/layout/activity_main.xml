@@ -13,16 +13,6 @@
         android:text="Waiting for sensor data..."
         android:textSize="18sp" />
 
-    <!-- 控制按钮区域 -->
-    <Button
-        android:id="@+id/btnToggle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="暂停"
-        android:layout_marginTop="16dp"
-        android:layout_marginBottom="16dp"
-        android:textSize="16sp" />
-
     <com.example.androidclient.WaveformView
         android:id="@+id/waveform"
         android:layout_width="match_parent"

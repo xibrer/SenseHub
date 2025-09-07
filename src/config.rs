@@ -189,7 +189,7 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             data_channel_capacity: 5000,
-            audio_channel_capacity: 100000,
+            audio_channel_capacity: 10000,
             db_task_channel_capacity: 100,
             save_result_channel_capacity: 100,
         }
