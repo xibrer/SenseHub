@@ -189,7 +189,7 @@ impl Default for ChannelConfig {
     fn default() -> Self {
         Self {
             data_channel_capacity: 5000,
-            audio_channel_capacity: 10000,
+            audio_channel_capacity: 100000,
             db_task_channel_capacity: 100,
             save_result_channel_capacity: 100,
         }
@@ -201,10 +201,10 @@ impl AppConfig {
     pub fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, ConfigError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| ConfigError::IoError(e))?;
-        
+
         let config: AppConfig = toml::from_str(&content)
             .map_err(|e| ConfigError::ParseError(e))?;
-        
+
         config.validate()?;
         Ok(config)
     }
@@ -213,10 +213,10 @@ impl AppConfig {
     pub fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), ConfigError> {
         let content = toml::to_string_pretty(self)
             .map_err(|e| ConfigError::SerializeError(e))?;
-        
+
         std::fs::write(path, content)
             .map_err(|e| ConfigError::IoError(e))?;
-        
+
         Ok(())
     }
 

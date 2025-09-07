@@ -2,6 +2,37 @@ use egui_plot::{Line, Plot, PlotPoints};
 use egui::Color32;
 use std::collections::VecDeque;
 
+/// 格式化数字为固定宽度的 y 轴标签
+fn format_fixed_width_y_label(value: f64) -> String {
+    // 使用固定6字符宽度的格式
+    if value == 0.0 {
+        return " 0.00 ".to_string();
+    }
+
+    let abs_value = value.abs();
+
+    // 根据数值大小选择合适的格式，但保持固定宽度
+    if abs_value >= 1000.0 {
+        // 大于等于1000：使用科学计数法，固定宽度
+        format!("{:6.1e}", value)
+    } else if abs_value >= 100.0 {
+        // 100-999：整数格式，右对齐6字符宽度
+        format!("{:6.0}", value)
+    } else if abs_value >= 10.0 {
+        // 10-99.9：一位小数，右对齐6字符宽度
+        format!("{:6.1}", value)
+    } else if abs_value >= 1.0 {
+        // 1-9.99：两位小数，右对齐6字符宽度
+        format!("{:6.2}", value)
+    } else if abs_value >= 0.01 {
+        // 0.01-0.999：三位小数，右对齐6字符宽度
+        format!("{:6.3}", value)
+    } else {
+        // 小于0.01：使用科学计数法，固定宽度
+        format!("{:6.1e}", value)
+    }
+}
+
 #[derive(Debug)]
 pub struct WaveformPlot {
     buffer_x: VecDeque<f64>,
@@ -21,7 +52,7 @@ impl WaveformPlot {
     pub fn new(sample_rate: usize) -> Self {
         let window_seconds = 5.0;
         let max_samples = (window_seconds * sample_rate as f64) as usize;
-        
+
         // 音频缓冲区 - 直接使用16kHz音频数据，不下采样
         let audio_window_seconds = 5.0; // 显示5秒的音频数据
         let audio_sample_rate = 16000; // 16kHz完整采样率
@@ -56,24 +87,24 @@ impl WaveformPlot {
             self.buffer_timestamp.pop_front();
         }
     }
-    
+
     pub fn add_audio_samples(&mut self, samples: &[i16], base_timestamp: i64, sample_rate: u32) {
         // 批量转换音频样本为归一化的f64值 (-1.0 到 1.0)
         let normalized_samples: Vec<f64> = samples
             .iter()
             .map(|&sample| sample as f64 / 32768.0)
             .collect();
-        
+
         // 计算每个样本的时间戳
         let sample_interval_ms = 1000.0 / sample_rate as f64;
         let timestamps: Vec<i64> = (0..samples.len())
             .map(|i| base_timestamp + (i as f64 * sample_interval_ms) as i64)
             .collect();
-        
+
         // 批量添加到缓冲区末尾
         self.audio_buffer.extend(normalized_samples);
         self.audio_timestamps.extend(timestamps);
-        
+
         // 如果超过最大样本数，批量移除最旧的数据 - O(1)操作
         while self.audio_buffer.len() > self.audio_max_samples {
             self.audio_buffer.pop_front();
@@ -87,7 +118,7 @@ impl WaveformPlot {
                 self.plot_axis(ui, "X Axis", &self.buffer_x, Color32::RED);
                 self.plot_axis(ui, "Y Axis", &self.buffer_y, Color32::GREEN);
                 self.plot_axis(ui, "Z Axis", &self.buffer_z, Color32::BLUE);
-                
+
                 // 添加音频波形显示
                 self.plot_audio(ui, "Audio Waveform", &self.audio_buffer, Color32::PURPLE);
             });
@@ -112,13 +143,13 @@ impl WaveformPlot {
         Plot::new(title)
             .height(150.0)
             .x_axis_formatter(|v, _| format!("{:.1}s", v.value))
-            .y_axis_formatter(|v, _| format!("{:.2}", v.value))
+            .y_axis_formatter(|v, _| format_fixed_width_y_label(v.value))
             .show_x(false)
             .show_y(false)
             .allow_drag(false)
             .allow_zoom(false)
             .show(ui, |plot_ui| {
-                // 计算时间点：最新的数据在右侧（时间=0），最旧的数据在左侧（时间=-window_duration）
+                // 计算时间点：最旧的数据在左侧（时间=0），最新的数据在右侧（时间=window_duration）
                 let data_len = buffer.len();
                 if data_len == 0 {
                     return;
@@ -126,27 +157,26 @@ impl WaveformPlot {
 
                 let dt = self.window_duration / (self.max_samples as f64);
 
-                // 从右到左的时间轴：最新数据时间为0，向左递减
+                // 从左到右的时间轴：最旧数据时间为0，向右递增
                 let points: Vec<[f64; 2]> = buffer
                     .iter()
                     .enumerate()
                     .map(|(i, &y)| {
                         // 索引0是最旧的数据，索引data_len-1是最新的数据
-                        let time_offset = (data_len - 1 - i) as f64 * dt;
-                        let time = -time_offset; // 负时间表示过去
+                        let time = i as f64 * dt; // 正时间，从0开始递增
                         [time, y]
                     })
                     .collect();
 
                 plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-                    [-self.window_duration, y_min],
-                    [0.0, y_max],
+                    [0.0, y_min],
+                    [self.window_duration, y_max],
                 ));
 
                 plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));
             });
     }
-    
+
     fn plot_audio(&self, ui: &mut egui::Ui, title: &str, buffer: &VecDeque<f64>, color: Color32) {
         if buffer.is_empty() {
             return;
@@ -165,13 +195,13 @@ impl WaveformPlot {
         Plot::new(title)
             .height(150.0)
             .x_axis_formatter(|v, _| format!("{:.2}s", v.value))
-            .y_axis_formatter(|v, _| format!("{:.3}", v.value))
+            .y_axis_formatter(|v, _| format_fixed_width_y_label(v.value))
             .show_x(false)
             .show_y(false)
             .allow_drag(false)
             .allow_zoom(false)
             .show(ui, |plot_ui| {
-                // 计算时间点：最新的数据在右侧（时间=0），最旧的数据在左侧（时间=-window_duration）
+                // 计算时间点：最旧的数据在左侧（时间=0），最新的数据在右侧（时间=window_duration）
                 let data_len = buffer.len();
                 if data_len == 0 {
                     return;
@@ -179,21 +209,20 @@ impl WaveformPlot {
 
                 let dt = self.audio_window_duration / (self.audio_max_samples as f64);
 
-                // 从右到左的时间轴：最新数据时间为0，向左递减
+                // 从左到右的时间轴：最旧数据时间为0，向右递增
                 let points: Vec<[f64; 2]> = buffer
                     .iter()
                     .enumerate()
                     .map(|(i, &y)| {
                         // 索引0是最旧的数据，索引data_len-1是最新的数据
-                        let time_offset = (data_len - 1 - i) as f64 * dt;
-                        let time = -time_offset; // 负时间表示过去
+                        let time = i as f64 * dt; // 正时间，从0开始递增
                         [time, y]
                     })
                     .collect();
 
                 plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-                    [-self.audio_window_duration, y_min],
-                    [0.0, y_max],
+                    [0.0, y_min],
+                    [self.audio_window_duration, y_max],
                 ));
 
                 plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));

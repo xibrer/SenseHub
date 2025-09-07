@@ -10,21 +10,21 @@ use super::state::AppState;
 pub struct SensorDataApp {
     // 统一的状态管理
     pub state: AppState,
-    
+
     // 配置管理
     pub config: ConfigManager,
 }
 
 impl SensorDataApp {
     pub fn new(
-        data_receiver: crossbeam_channel::Receiver<DataPoint>, 
+        data_receiver: crossbeam_channel::Receiver<DataPoint>,
         audio_receiver: crossbeam_channel::Receiver<AudioData>,
         db_task_sender: crossbeam_channel::Sender<DatabaseTask>,
         save_result_receiver: crossbeam_channel::Receiver<SaveResult>
     ) -> Self {
         // 创建配置管理器
         let config = ConfigManager::new();
-        
+
         // 创建应用状态
         let mut state = AppState::new(
             data_receiver,
@@ -32,18 +32,18 @@ impl SensorDataApp {
             db_task_sender,
             save_result_receiver,
         );
-        
+
         // 初始化会话ID
         state.collection.current_session_id = generate_session_id();
-        
+
         let app = SensorDataApp {
             state,
             config,
         };
-        
+
         // 打印启动信息
         info!("应用启动，等待数据到达开始校准...");
-        
+
         app
     }
 }
@@ -52,24 +52,26 @@ impl eframe::App for SensorDataApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         // 设置明亮模式主题
         ctx.set_visuals(egui::Visuals::light());
-        
+
         // 渲染UI组件
         crate::app::ui::render_status_bar(self, ctx);
+        crate::app::ui::render_history_panel(self, ctx);
         crate::app::ui::render_main_panel(self, ctx);
         crate::app::ui::render_export_dialog(self, ctx);
-        
+
         // 处理各种结果
         self.handle_save_results();
         self.handle_export_results();
         self.handle_sessions_results();
-        
+        self.handle_history_results();
+
         // 处理数据：校准、采集或丢弃
         self.handle_data_processing();
-        
+
         // 处理键盘输入
         self.handle_keyboard_input(ctx);
 
-        ctx.request_repaint_after(Duration::from_millis(120));
+        ctx.request_repaint_after(Duration::from_millis(150));
     }
 }
 
@@ -81,7 +83,7 @@ impl SensorDataApp {
             } else if result.acc_saved > 0 || result.audio_saved > 0 {
                 self.state.collection.save_status = format!("Saved: {} ACC points, {} audio records", result.acc_saved, result.audio_saved);
                 info!("Data saved successfully: {} ACC, {} audio", result.acc_saved, result.audio_saved);
-                
+
                 // 生成新的session ID for next save
                 self.state.collection.current_session_id = generate_session_id();
             } else {
@@ -89,7 +91,7 @@ impl SensorDataApp {
             }
         }
     }
-    
+
     fn handle_export_results(&mut self) {
         if let Some(receiver) = &self.state.export.export_result_receiver {
             if let Ok(result) = receiver.try_recv() {
@@ -99,7 +101,7 @@ impl SensorDataApp {
             }
         }
     }
-    
+
     fn handle_sessions_results(&mut self) {
         if let Some(receiver) = &self.state.export.sessions_result_receiver {
             if let Ok(sessions) = receiver.try_recv() {
@@ -110,12 +112,88 @@ impl SensorDataApp {
             }
         }
     }
-    
+
+    fn handle_history_results(&mut self) {
+        // Handle session list results
+        if let Some(receiver) = &self.state.history.sessions_result_receiver {
+            if let Ok(sessions) = receiver.try_recv() {
+                self.state.history.history_sessions = sessions;
+                self.state.history.loading_status = format!("Found {} history sessions", self.state.history.history_sessions.len());
+                self.state.history.sessions_result_receiver = None; // Clear receiver
+                info!("Refreshed history sessions: found {}", self.state.history.history_sessions.len());
+            }
+        }
+
+        // Handle history data loading results (original data)
+        if let Some(receiver) = &self.state.history.history_result_receiver {
+            if let Ok((acc_data, audio_data)) = receiver.try_recv() {
+                // Store original data
+                self.state.history.original_history_data = acc_data.clone();
+                self.state.history.original_audio_data = audio_data.clone();
+
+                // If currently showing original data, update display
+                if !self.state.history.show_aligned_data {
+                    self.state.history.loaded_history_data = acc_data;
+                    self.state.history.loaded_audio_data = audio_data;
+                    self.state.history.loading_status = format!(
+                        "Loaded original data: {} acc points, {} audio samples",
+                        self.state.history.loaded_history_data.len(),
+                        self.state.history.loaded_audio_data.len()
+                    );
+                }
+
+                self.state.history.history_result_receiver = None; // Clear receiver
+                info!("Loaded original history data: {} acc points, {} audio samples", 
+                     self.state.history.original_history_data.len(), 
+                     self.state.history.original_audio_data.len());
+            }
+        }
+
+        // Handle aligned history data loading results
+        if let Some(receiver) = &self.state.history.aligned_history_result_receiver {
+            if let Ok((acc_data, audio_data, common_time_range_ms)) = receiver.try_recv() {
+                // Store aligned data
+                self.state.history.aligned_history_data = acc_data.clone();
+                self.state.history.aligned_audio_data = audio_data.clone();
+                self.state.history.common_time_range_ms = common_time_range_ms;
+
+                // If currently showing aligned data, update display
+                if self.state.history.show_aligned_data {
+                    self.state.history.loaded_history_data = acc_data.clone();
+                    self.state.history.loaded_audio_data = audio_data.clone();
+                    self.state.history.loading_status = format!(
+                        "Loaded aligned data: {} acc points, {} audio samples ({}ms common range)",
+                        self.state.history.loaded_history_data.len(),
+                        self.state.history.loaded_audio_data.len(),
+                        common_time_range_ms
+                    );
+                }
+
+                self.state.history.aligned_history_result_receiver = None; // Clear receiver
+                info!("Loaded aligned history data: {} acc points, {} audio samples, {}ms common range", 
+                     acc_data.len(), 
+                     audio_data.len(),
+                     common_time_range_ms);
+            }
+        }
+    }
+
     fn handle_data_processing(&mut self) {
         if self.state.calibration.is_calibrating {
             crate::app::handlers::CalibrationHandler::handle_calibration(self);
         } else if self.state.collection.is_collecting {
-            crate::app::handlers::DataCollectionHandler::handle_collection(self);
+            if self.state.collection.is_paused {
+                // 暂停状态：清空接收缓冲区但不处理数据
+                while let Ok(_) = self.state.channels.data_receiver.try_recv() {
+                    // 丢弃数据
+                }
+                while let Ok(_) = self.state.channels.audio_receiver.try_recv() {
+                    // 丢弃音频数据
+                }
+            } else {
+                // 正常采集状态：处理数据
+                crate::app::handlers::DataCollectionHandler::handle_collection(self);
+            }
         } else {
             // 停止状态：清空接收缓冲区
             while let Ok(_) = self.state.channels.data_receiver.try_recv() {
@@ -126,24 +204,26 @@ impl SensorDataApp {
             }
         }
     }
-    
+
     fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
         ctx.input(|i| {
             if i.key_pressed(egui::Key::Space) {
-                if self.state.collection.is_collecting {
+                if self.state.collection.is_collecting && !self.state.collection.is_paused {
                     self.save_current_window_data_async();
+                } else if self.state.collection.is_paused {
+                    self.state.collection.save_status = "Data collection is paused".to_string();
                 } else {
                     self.state.collection.save_status = "Not collecting data".to_string();
                 }
             }
         });
     }
-    
+
     pub fn save_current_window_data_async(&mut self) {
         // 获取当前窗口的加速度数据
         let acc_data = self.state.waveform_plot.get_current_accelerometer_data();
         let audio_data = self.state.waveform_plot.get_current_audio_data();
-        
+
         if acc_data.is_empty() && audio_data.is_empty() {
             self.state.collection.save_status = "No data to save".to_string();
             return;
@@ -163,7 +243,7 @@ impl SensorDataApp {
         // 获取当前窗口内第一个和最后一个音频数据点的时间戳
         let audio_start_timestamp = self.state.waveform_plot.get_current_audio_first_timestamp();
         let audio_end_timestamp = self.state.waveform_plot.get_current_audio_last_timestamp();
-        
+
         // 创建保存任务
         let save_task = DatabaseTask::Save {
             accelerometer_data: acc_points,
