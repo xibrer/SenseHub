@@ -31,6 +31,7 @@ impl SensorDataApp {
             audio_receiver,
             db_task_sender,
             save_result_receiver,
+            config.get_config(),
         );
 
         // 初始化会话ID
@@ -193,6 +194,43 @@ impl SensorDataApp {
                      common_time_range_ms);
             }
         }
+
+        // Handle delete session results
+        if let Some(receiver) = &self.state.history.delete_result_receiver {
+            if let Ok(result) = receiver.try_recv() {
+                match result {
+                    Ok(()) => {
+                        self.state.history.loading_status = "Session删除成功".to_string();
+                        
+                        // 清除相关状态
+                        if let Some(deleted_session) = &self.state.history.session_to_delete {
+                            // 如果删除的是当前选中的session，清除选中状态
+                            if self.state.history.selected_session.as_ref() == Some(deleted_session) {
+                                self.state.history.selected_session = None;
+                                self.state.history.loaded_history_data.clear();
+                                self.state.history.loaded_audio_data.clear();
+                                self.state.history.original_history_data.clear();
+                                self.state.history.original_audio_data.clear();
+                                self.state.history.aligned_history_data.clear();
+                                self.state.history.aligned_audio_data.clear();
+                            }
+                            
+                            // 从session列表中移除已删除的session
+                            self.state.history.history_sessions.retain(|s| s != deleted_session);
+                        }
+                        
+                        self.state.history.session_to_delete = None;
+                        info!("Session deleted successfully");
+                    }
+                    Err(error_msg) => {
+                        self.state.history.loading_status = format!("删除失败: {}", error_msg);
+                        self.state.history.session_to_delete = None;
+                    }
+                }
+                
+                self.state.history.delete_result_receiver = None;
+            }
+        }
     }
 
     fn handle_data_processing(&mut self) {
@@ -303,9 +341,13 @@ impl SensorDataApp {
                 self.state.collection.save_status = "Saving data...".to_string();
                 info!("Save task sent to background thread");
             }
-            Err(e) => {
-                self.state.collection.save_status = format!("Failed to queue save task: {}", e);
-                error!("Failed to send save task: {}", e);
+            Err(crossbeam_channel::TrySendError::Full(_)) => {
+                self.state.collection.save_status = "Database queue is full, try again later".to_string();
+                warn!("Database task queue is full, task not sent");
+            }
+            Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+                self.state.collection.save_status = "Database connection lost! Please restart the application.".to_string();
+                error!("Database task channel disconnected - database thread may have crashed");
             }
         }
     }

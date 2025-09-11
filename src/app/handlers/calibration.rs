@@ -68,7 +68,7 @@ impl CalibrationHandler {
                   sample_count, time_diff_ms, sample_rate);
 
             // 使用新的状态管理方法完成校准
-            app.state.complete_calibration(sample_rate);
+            app.state.complete_calibration(sample_rate, &app.config.get_config().plot);
 
             info!("开始正常数据采集模式");
         } else {

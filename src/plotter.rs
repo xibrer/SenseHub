@@ -53,14 +53,14 @@ pub struct WaveformPlot {
 }
 
 impl WaveformPlot {
-    pub fn new(sample_rate: usize) -> Self {
-        let window_seconds = 5.0;
+    pub fn new(sample_rate: usize, config: &PlotConfig) -> Self {
+        let window_seconds = config.window_duration_seconds;
         let max_samples = (window_seconds * sample_rate as f64) as usize;
 
         // 音频缓冲区 - 直接使用16kHz音频数据，不下采样
-        let audio_window_seconds = 5.0; // 显示5秒的音频数据
+        // 使用统一的窗口长度配置
         let audio_sample_rate = 16000; // 16kHz完整采样率
-        let audio_max_samples = (audio_window_seconds * audio_sample_rate as f64) as usize;
+        let audio_max_samples = (window_seconds * audio_sample_rate as f64) as usize;
 
         Self {
             buffer_x: VecDeque::with_capacity(max_samples),
@@ -75,7 +75,7 @@ impl WaveformPlot {
             max_samples,
             window_duration: window_seconds,
             audio_max_samples,
-            audio_window_duration: audio_window_seconds,
+            audio_window_duration: window_seconds, // 使用统一的窗口长度
         }
     }
 

@@ -111,6 +111,9 @@ pub struct HistoryVisualizationState {
     pub usernames_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
     pub panel_width: f32,
     pub show_aligned_data: bool,
+    pub delete_result_receiver: Option<crossbeam_channel::Receiver<Result<(), String>>>,
+    pub show_delete_confirmation: bool,
+    pub session_to_delete: Option<String>,
 }
 
 impl Default for ExportState {
@@ -149,6 +152,9 @@ impl Default for HistoryVisualizationState {
             usernames_result_receiver: None,
             panel_width: 300.0, // 默认侧边面板宽度
             show_aligned_data: true, // 默认显示对齐后的数据
+            delete_result_receiver: None,
+            show_delete_confirmation: false,
+            session_to_delete: None,
         }
     }
 }
@@ -210,8 +216,9 @@ impl AppState {
         audio_receiver: Receiver<AudioData>,
         db_task_sender: Sender<DatabaseTask>,
         save_result_receiver: Receiver<SaveResult>,
+        config: &crate::config::AppConfig,
     ) -> Self {
-        let initial_sample_rate = 393; // 初始采样率
+        let initial_sample_rate = config.calibration.initial_sample_rate;
 
         Self {
             collection: CollectionState::default(),
@@ -227,7 +234,7 @@ impl AppState {
                 data_receiver,
                 audio_receiver,
             },
-            waveform_plot: WaveformPlot::new(initial_sample_rate),
+            waveform_plot: WaveformPlot::new(initial_sample_rate, &config.plot),
             text_reader: TextReaderState::default(),
         }
     }
@@ -262,13 +269,13 @@ impl AppState {
     }
 
     /// 完成校准并开始采集
-    pub fn complete_calibration(&mut self, sample_rate: f64) {
+    pub fn complete_calibration(&mut self, sample_rate: f64, config: &crate::config::PlotConfig) {
         self.calibration.is_calibrating = false;
         self.calibration.calculated_sample_rate = Some(sample_rate);
         self.collection.is_collecting = true;
 
-        // 使用计算出的采样率重新创建 WaveformPlot
-        self.waveform_plot = WaveformPlot::new(sample_rate as usize);
+        // 使用计算出的采样率和配置重新创建 WaveformPlot
+        self.waveform_plot = WaveformPlot::new(sample_rate as usize, config);
 
         // 清空校准数据
         self.calibration.calibration_data.clear();

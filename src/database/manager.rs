@@ -27,13 +27,14 @@ impl DatabaseManager {
     }
 
     fn create_tables(&self) -> DuckResult<()> {
+        // 首先创建所有基础表，然后再执行迁移
+        
         // 创建加速度数据表
         self.conn.execute(
             "CREATE SEQUENCE IF NOT EXISTS accelerometer_data_seq",
             [],
         )?;
         
-        // 首先尝试创建表（如果不存在）
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS accelerometer_data (
                 id INTEGER PRIMARY KEY DEFAULT nextval('accelerometer_data_seq'),
@@ -46,15 +47,6 @@ impl DatabaseManager {
             )",
             [],
         )?;
-
-        // 然后执行迁移，添加陀螺仪列（如果不存在）
-        self.migrate_accelerometer_table()?;
-        
-        // 执行迁移，添加用户名列（如果不存在）
-        self.migrate_username_columns()?;
-        
-        // 执行迁移，添加场景列（如果不存在）
-        self.migrate_scenario_column()?;
 
         // 创建音频数据表
         self.conn.execute(
@@ -78,7 +70,14 @@ impl DatabaseManager {
             [],
         )?;
 
-        info!("Database tables created successfully");
+        info!("Basic database tables created successfully");
+
+        // 现在执行迁移，添加缺失的列
+        self.migrate_accelerometer_table()?;
+        self.migrate_username_columns()?;
+        self.migrate_scenario_column()?;
+
+        info!("Database migration completed successfully");
         Ok(())
     }
 
@@ -145,7 +144,29 @@ impl DatabaseManager {
     }
 
     fn check_username_column_exists(&self, table_name: &str) -> DuckResult<bool> {
-        // 尝试查询用户名列，如果出错说明列不存在
+        // 首先检查表是否存在
+        let table_exists_query = format!(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{}'", 
+            table_name
+        );
+        
+        let table_exists = match self.conn.query_row(&table_exists_query, [], |row| {
+            Ok(row.get::<_, i64>(0)? > 0)
+        }) {
+            Ok(exists) => exists,
+            Err(_) => {
+                // 如果无法查询信息架构，尝试直接查询表
+                let test_query = format!("SELECT COUNT(*) FROM {} LIMIT 1", table_name);
+                self.conn.execute(&test_query, []).is_ok()
+            }
+        };
+        
+        if !table_exists {
+            info!("Table {} does not exist, username column does not exist", table_name);
+            return Ok(false);
+        }
+        
+        // 表存在，检查username列是否存在
         let query = format!("SELECT username FROM {} LIMIT 1", table_name);
         let result = self.conn.execute(&query, []);
         
@@ -558,6 +579,30 @@ impl DatabaseManager {
     pub fn mark_session_exported(&self, _session_id: &str) -> DuckResult<()> {
         // 不再需要数据库表记录，文件存在即表示已导出
         Ok(())
+    }
+
+    // 删除指定session的所有数据
+    pub fn delete_session(&self, session_id: &str) -> DuckResult<usize> {
+        let mut total_deleted = 0;
+        
+        // 删除加速度数据
+        let acc_deleted = self.conn.execute(
+            "DELETE FROM accelerometer_data WHERE session_id = ?",
+            [session_id],
+        )?;
+        total_deleted += acc_deleted;
+        
+        // 删除音频数据
+        let audio_deleted = self.conn.execute(
+            "DELETE FROM audio_data WHERE session_id = ?",
+            [session_id],
+        )?;
+        total_deleted += audio_deleted;
+        
+        info!("Deleted session {}: {} accelerometer records, {} audio records", 
+              session_id, acc_deleted, audio_deleted);
+        
+        Ok(total_deleted)
     }
 }
 

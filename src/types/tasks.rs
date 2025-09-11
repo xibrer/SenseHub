@@ -42,6 +42,10 @@ pub enum DatabaseTask {
         session_id: String,
         response_sender: crossbeam_channel::Sender<(Vec<DataPoint>, Vec<f64>, i64)>,
     },
+    DeleteSession {
+        session_id: String,
+        response_sender: crossbeam_channel::Sender<Result<(), String>>,
+    },
 }
 
 /// Export type specification

@@ -4,7 +4,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use crossbeam_channel::{Receiver, Sender};
 use log::{info, error, warn};
-use std::io::Write;
 
 use crate::types::{DatabaseTask, ExportType, ExportResult, SaveResult, DataPoint, AudioData};
 use super::manager::DatabaseManager;
@@ -33,7 +32,12 @@ pub fn run_database_handler(
             Ok(task) => {
                 match task {
                     DatabaseTask::Save { accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id, username, scenario } => {
-                        handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id, username, scenario);
+                        if let Err(should_exit) = handle_save_task(&db_manager, &result_sender, accelerometer_data, audio_data, audio_metadata, audio_start_timestamp, audio_end_timestamp, session_id, username, scenario) {
+                            if should_exit {
+                                info!("Database handler: Save task handler requested exit, shutting down");
+                                break;
+                            }
+                        }
                     }
                     DatabaseTask::Export { export_type, response_sender } => {
                         let result = handle_export_request(&db_manager, export_type);
@@ -83,6 +87,12 @@ pub fn run_database_handler(
                             warn!("Database handler: Failed to send aligned history data: {}", e);
                         }
                     }
+                    DatabaseTask::DeleteSession { session_id, response_sender } => {
+                        let result = handle_delete_session(&db_manager, &session_id);
+                        if let Err(e) = response_sender.try_send(result) {
+                            warn!("Database handler: Failed to send delete result: {}", e);
+                        }
+                    }
                 }
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -112,7 +122,7 @@ fn handle_save_task(
     session_id: String,
     username: String,
     scenario: String,
-) {
+) -> Result<(), bool> {
     let mut acc_saved = 0;
     let mut audio_saved = 0;
     let mut error_msg = None;
@@ -152,9 +162,21 @@ fn handle_save_task(
         error: error_msg,
     };
 
-    if let Err(_) = result_sender.send(result) {
-        // GUI已关闭，退出循环
-        info!("Database handler: Result channel disconnected, exiting");
+    // 使用 try_send 避免阻塞，並檢查通道狀態
+    match result_sender.try_send(result) {
+        Ok(()) => {
+            info!("Database handler: Save result sent successfully");
+            Ok(())
+        }
+        Err(crossbeam_channel::TrySendError::Full(_)) => {
+            warn!("Database handler: Result channel is full, continuing...");
+            Ok(())
+        }
+        Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
+            // GUI已关闭或結果通道斷開，請求退出
+            info!("Database handler: Result channel disconnected, requesting exit");
+            Err(true) // true 表示應該退出
+        }
     }
 }
 
@@ -316,4 +338,17 @@ fn handle_load_aligned_history_data(db_manager: &DatabaseManager, session_id: &s
           aligned_acc_data.len(), final_audio_data.len(), common_time_range_ms);
 
     (aligned_acc_data, final_audio_data, common_time_range_ms)
+}
+
+fn handle_delete_session(db_manager: &DatabaseManager, session_id: &str) -> Result<(), String> {
+    match db_manager.delete_session(session_id) {
+        Ok(deleted_count) => {
+            info!("Database handler: Successfully deleted {} records for session {}", deleted_count, session_id);
+            Ok(())
+        }
+        Err(e) => {
+            error!("Database handler: Failed to delete session {}: {}", session_id, e);
+            Err(format!("Failed to delete session: {}", e))
+        }
+    }
 }

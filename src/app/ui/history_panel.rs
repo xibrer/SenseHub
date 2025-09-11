@@ -60,6 +60,9 @@ pub fn render_history_panel(app: &mut SensorDataApp, ctx: &egui::Context) {
                 });
             }
         });
+
+    // 渲染删除确认对话框
+    render_delete_confirmation_dialog(app, ctx);
 }
 
 fn render_panel_controls(app: &mut SensorDataApp, ui: &mut egui::Ui) {
@@ -155,6 +158,14 @@ fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
                             }
                         }
                     });
+
+                // 添加删除按钮
+                if let Some(selected_session) = &app.state.history.selected_session {
+                    if ui.button("🗑").on_hover_text("删除此session").clicked() {
+                        app.state.history.session_to_delete = Some(selected_session.clone());
+                        app.state.history.show_delete_confirmation = true;
+                    }
+                }
             }
         });
     } else {
@@ -505,5 +516,58 @@ fn load_original_data(app: &mut SensorDataApp, session_id: &str) {
         app.state.history.history_result_receiver = Some(receiver);
     } else {
         app.state.history.loading_status = "Unable to send original data loading request".to_string();
+    }
+}
+
+// 渲染删除确认对话框
+fn render_delete_confirmation_dialog(app: &mut SensorDataApp, ctx: &egui::Context) {
+    if !app.state.history.show_delete_confirmation {
+        return;
+    }
+
+    egui::Window::new("确认删除")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            if let Some(session_id) = app.state.history.session_to_delete.clone() {
+                ui.label(format!("确定要删除session '{}'吗？", session_id));
+                ui.add_space(10.0);
+                ui.colored_label(egui::Color32::from_rgb(200, 100, 100), "⚠ 此操作不可撤销！");
+                ui.add_space(10.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button("❌ 取消").clicked() {
+                        app.state.history.show_delete_confirmation = false;
+                        app.state.history.session_to_delete = None;
+                    }
+
+                    ui.add_space(20.0);
+
+                    if ui.button("🗑 确认删除").clicked() {
+                        delete_selected_session(app, &session_id);
+                        app.state.history.show_delete_confirmation = false;
+                    }
+                });
+            }
+        });
+}
+
+// 删除选中的session
+fn delete_selected_session(app: &mut SensorDataApp, session_id: &str) {
+    use crate::types::DatabaseTask;
+
+    app.state.history.loading_status = format!("正在删除session: {}", session_id);
+
+    let (sender, receiver) = crossbeam_channel::unbounded();
+    let task = DatabaseTask::DeleteSession {
+        session_id: session_id.to_string(),
+        response_sender: sender,
+    };
+
+    if let Ok(()) = app.state.database.db_task_sender.try_send(task) {
+        app.state.history.delete_result_receiver = Some(receiver);
+    } else {
+        app.state.history.loading_status = "无法发送删除请求".to_string();
     }
 }

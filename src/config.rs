@@ -57,8 +57,7 @@ pub struct MqttTopics {
 /// 绘图配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlotConfig {
-    pub window_duration_seconds: f64,
-    pub audio_window_duration_seconds: f64,
+    pub window_duration_seconds: f64,  // 统一的窗口长度，所有传感器共用
     pub plot_height: f32,
     pub show_axes: bool,
     pub allow_drag: bool,
@@ -116,7 +115,7 @@ impl Default for WindowConfig {
             width: 1200.0,
             height: 1000.0,  // 增加50%：800 * 1.5 = 1200
             x: None,  // 水平居中
-            y: Some(30.0),  // 设置在屏幕中上方，距离顶部100像素
+            y: Some(5.0),  // 设置在屏幕中上方，距离顶部100像素
             title: "SenseHub - Sensor Data Viewer".to_string(),
             resizable: true,
             vsync: true,
@@ -160,8 +159,7 @@ impl Default for MqttTopics {
 impl Default for PlotConfig {
     fn default() -> Self {
         Self {
-            window_duration_seconds: 5.0,
-            audio_window_duration_seconds: 5.0,
+            window_duration_seconds: 10.0,  // 统一的窗口长度，所有传感器共用
             plot_height: 150.0,
             show_axes: false,
             allow_drag: false,
