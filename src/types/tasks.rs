@@ -23,6 +23,9 @@ pub enum DatabaseTask {
     GetUnexportedSessions {
         response_sender: crossbeam_channel::Sender<Vec<String>>,
     },
+    GetAllSessionsWithExportStatus {
+        response_sender: crossbeam_channel::Sender<Vec<(String, bool)>>,
+    },
     GetUsernames {
         response_sender: crossbeam_channel::Sender<Vec<String>>,
     },

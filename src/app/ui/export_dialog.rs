@@ -32,17 +32,23 @@ pub fn render_export_dialog(app: &mut SensorDataApp, ctx: &egui::Context) {
 }
 
 fn render_session_list(app: &mut SensorDataApp, ui: &mut egui::Ui) {
-    if app.state.export.available_sessions.is_empty() {
-        ui.label("No exportable session data found");
+    if app.state.export.sessions_with_export_status.is_empty() {
+        ui.label("No session data found");
     } else {
-        ui.label(format!("Found {} sessions:", app.state.export.available_sessions.len()));
+        let total_sessions = app.state.export.sessions_with_export_status.len();
+        let exported_count = app.state.export.sessions_with_export_status.iter()
+            .filter(|(_, is_exported)| *is_exported).count();
+        let unexported_count = total_sessions - exported_count;
+        
+        ui.label(format!("Found {} sessions ({} exported, {} unexported):", 
+                        total_sessions, exported_count, unexported_count));
         ui.add_space(5.0);
         
         // Session selection list
         egui::ScrollArea::vertical()
             .max_height(200.0)
             .show(ui, |ui| {
-                for session_id in &app.state.export.available_sessions.clone() {
+                for (session_id, is_exported) in &app.state.export.sessions_with_export_status.clone() {
                     ui.horizontal(|ui| {
                         let mut selected = app.state.export.selected_sessions.contains(session_id);
                         if ui.checkbox(&mut selected, "").changed() {
@@ -54,11 +60,11 @@ fn render_session_list(app: &mut SensorDataApp, ui: &mut egui::Ui) {
                         }
                         ui.label(session_id);
                         
-                        // Show export status
-                        if ExportHandler::is_session_already_exported(app, session_id) {
-                            ui.colored_label(egui::Color32::GRAY, "(Exported)");
+                        // Show export status with better visual indicators
+                        if *is_exported {
+                            ui.colored_label(egui::Color32::GRAY, "✓ Exported");
                         } else {
-                            ui.colored_label(egui::Color32::GREEN, "(New)");
+                            ui.colored_label(egui::Color32::GREEN, "● New");
                         }
                     });
                 }

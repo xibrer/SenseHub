@@ -57,6 +57,12 @@ pub fn run_database_handler(
                             warn!("Database handler: Failed to send unexported sessions: {}", e);
                         }
                     }
+                    DatabaseTask::GetAllSessionsWithExportStatus { response_sender } => {
+                        let sessions = db_manager.get_all_sessions_with_export_status().unwrap_or_default();
+                        if let Err(e) = response_sender.try_send(sessions) {
+                            warn!("Database handler: Failed to send sessions with export status: {}", e);
+                        }
+                    }
                     DatabaseTask::GetUsernames { response_sender } => {
                         let usernames = db_manager.get_all_usernames().unwrap_or_default();
                         if let Err(e) = response_sender.try_send(usernames) {

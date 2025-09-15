@@ -253,10 +253,16 @@ fn render_history_visualization(app: &mut SensorDataApp, ui: &mut egui::Ui) {
         });
     }
 
+    // 音频播放控制区域（在滚动区域外面）
+    if app.state.history.display_options.show_audio && !app.state.history.loaded_audio_data.is_empty() {
+        ui.separator();
+        render_audio_playback_controls(app, ui);
+    }
+
     ui.add_space(5.0);
 
     egui::ScrollArea::vertical()
-        .max_height(ui.available_height() - 50.0)
+        .max_height(ui.available_height() - 100.0)
         .show(ui, |ui| {
             // Render accelerometer data
             if app.state.history.display_options.show_x_axis {
@@ -284,9 +290,9 @@ fn render_history_visualization(app: &mut SensorDataApp, ui: &mut egui::Ui) {
                 render_history_axis(ui, "GYRO Z-Axis History", &app.state.history.loaded_history_data, |dp| dp.gz, Color32::from_rgb(0, 255, 255));
             }
 
-            // Render audio data
+            // Render audio data (without controls)
             if app.state.history.display_options.show_audio && !app.state.history.loaded_audio_data.is_empty() {
-                render_history_audio(ui, "Audio History", &app.state.history.loaded_audio_data, Color32::PURPLE);
+                render_history_audio_waveform(ui, "Audio History", &app.state.history.loaded_audio_data, Color32::PURPLE, &app.state.history.audio_playback);
             }
         });
 }
@@ -336,7 +342,43 @@ where
         });
 }
 
-fn render_history_audio(ui: &mut egui::Ui, title: &str, audio_data: &[f64], color: Color32) {
+// 音频播放控制区域
+fn render_audio_playback_controls(app: &mut SensorDataApp, ui: &mut egui::Ui) {
+    ui.horizontal(|ui| {
+        ui.label("🎵 Audio Playback:");
+        
+        // 播放按钮
+        if app.state.history.audio_playback.is_playing {
+            if ui.button("⏸ 暂停").clicked() {
+                app.pause_history_audio();
+            }
+        } else {
+            if ui.button("▶ 播放").clicked() {
+                app.play_history_audio();
+            }
+        }
+
+        // 停止按钮
+        if ui.button("⏹ 停止").clicked() {
+            app.stop_history_audio();
+        }
+
+        // 显示播放状态
+        if app.state.history.audio_playback.is_available {
+            ui.separator();
+            if app.state.history.audio_playback.is_playing {
+                ui.label("🔊 播放中");
+            } else if app.state.history.audio_playback.is_paused {
+                ui.label("⏸ 已暂停");
+            } else {
+                ui.label("⏹ 已停止");
+            }
+        }
+    });
+}
+
+// 音频波形显示（不带控制按钮）
+fn render_history_audio_waveform(ui: &mut egui::Ui, title: &str, audio_data: &[f64], color: Color32, _playback_state: &crate::app::state::AudioPlaybackState) {
     if audio_data.is_empty() {
         return;
     }
@@ -351,7 +393,7 @@ fn render_history_audio(ui: &mut egui::Ui, title: &str, audio_data: &[f64], colo
     let y_max_padded = y_max + range * 0.05;
 
     Plot::new(title)
-        .height(75.0)
+        .height(100.0)
         .x_axis_formatter(|v, _| format!("{:.2}s", v.value))
         .y_axis_formatter(|v, _| format_fixed_width_y_label(v.value))
         .allow_drag(true)
@@ -375,6 +417,7 @@ fn render_history_audio(ui: &mut egui::Ui, title: &str, audio_data: &[f64], colo
             ));
 
             plot_ui.line(Line::new(title, PlotPoints::from(points)).color(color).width(1.0));
+
         });
 }
 

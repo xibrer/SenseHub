@@ -5,6 +5,7 @@ use log::{info, error, warn};
 use crate::types::{DataPoint, AudioData, DatabaseTask, SaveResult};
 use crate::database::generate_session_id;
 use crate::config::ConfigManager;
+use crate::audio::AudioPlayer;
 use super::state::AppState;
 
 pub struct SensorDataApp {
@@ -13,6 +14,9 @@ pub struct SensorDataApp {
 
     // 配置管理
     pub config: ConfigManager,
+
+    // 音频播放器
+    pub audio_player: Option<AudioPlayer>,
 }
 
 impl SensorDataApp {
@@ -37,9 +41,22 @@ impl SensorDataApp {
         // 初始化会话ID
         state.collection.current_session_id = generate_session_id();
 
+        // 初始化音频播放器
+        let audio_player = match AudioPlayer::new() {
+            Ok(player) => {
+                info!("Audio player initialized successfully");
+                Some(player)
+            }
+            Err(e) => {
+                warn!("Failed to initialize audio player: {}", e);
+                None
+            }
+        };
+
         let mut app = SensorDataApp {
             state,
             config,
+            audio_player,
         };
 
         // 加载文本文件
@@ -80,6 +97,9 @@ impl eframe::App for SensorDataApp {
         // 处理键盘输入
         self.handle_keyboard_input(ctx);
 
+        // 更新音频播放状态
+        self.update_audio_playback_state();
+
         ctx.request_repaint_after(Duration::from_millis(150));
     }
 }
@@ -113,11 +133,25 @@ impl SensorDataApp {
 
     fn handle_sessions_results(&mut self) {
         if let Some(receiver) = &self.state.export.sessions_result_receiver {
-            if let Ok(sessions) = receiver.try_recv() {
-                self.state.export.available_sessions = sessions;
-                self.state.export.export_status = format!("Found {} sessions", self.state.export.available_sessions.len());
+            if let Ok(sessions_with_status) = receiver.try_recv() {
+                self.state.export.sessions_with_export_status = sessions_with_status.clone();
+                
+                // 提取所有session ID
+                self.state.export.available_sessions = sessions_with_status.iter()
+                    .map(|(session_id, _)| session_id.clone())
+                    .collect();
+                
+                // 统计已导出和未导出的session数量
+                let exported_count = sessions_with_status.iter().filter(|(_, is_exported)| *is_exported).count();
+                let unexported_count = sessions_with_status.len() - exported_count;
+                
+                self.state.export.export_status = format!(
+                    "Found {} sessions ({} exported, {} unexported)", 
+                    sessions_with_status.len(), exported_count, unexported_count
+                );
                 self.state.export.sessions_result_receiver = None; // 清除接收器
-                info!("Refreshed sessions: found {}", self.state.export.available_sessions.len());
+                info!("Refreshed sessions: found {} total ({} exported, {} unexported)", 
+                      sessions_with_status.len(), exported_count, unexported_count);
             }
         }
     }
@@ -348,6 +382,79 @@ impl SensorDataApp {
             Err(crossbeam_channel::TrySendError::Disconnected(_)) => {
                 self.state.collection.save_status = "Database connection lost! Please restart the application.".to_string();
                 error!("Database task channel disconnected - database thread may have crashed");
+            }
+        }
+    }
+
+    /// 播放历史音频数据
+    pub fn play_history_audio(&mut self) {
+        if let Some(ref mut player) = self.audio_player {
+            if !self.state.history.loaded_audio_data.is_empty() {
+                // 加载音频数据到播放器
+                player.load_audio_data(&self.state.history.loaded_audio_data, 16000.0);
+                
+                // 开始播放
+                match player.play() {
+                    Ok(()) => {
+                        self.state.history.audio_playback.is_playing = true;
+                        self.state.history.audio_playback.is_paused = false;
+                        self.state.history.audio_playback.is_available = true;
+                        info!("Started playing history audio");
+                    }
+                    Err(e) => {
+                        warn!("Failed to start playing audio: {}", e);
+                        self.state.history.audio_playback.is_available = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /// 暂停历史音频播放
+    pub fn pause_history_audio(&mut self) {
+        if let Some(ref mut player) = self.audio_player {
+            player.pause();
+            self.state.history.audio_playback.is_playing = false;
+            self.state.history.audio_playback.is_paused = true;
+            info!("Paused history audio playback");
+        }
+    }
+
+    /// 停止历史音频播放
+    pub fn stop_history_audio(&mut self) {
+        if let Some(ref mut player) = self.audio_player {
+            player.stop();
+            self.state.history.audio_playback.is_playing = false;
+            self.state.history.audio_playback.is_paused = false;
+            info!("Stopped history audio playback");
+        }
+    }
+
+
+    /// 更新音频播放状态
+    pub fn update_audio_playback_state(&mut self) {
+        if let Some(ref player) = self.audio_player {
+            // 更新来自工作线程的状态
+            player.update_status();
+            
+            use crate::audio::player::PlaybackState;
+            
+            let state = player.get_state();
+            self.state.history.audio_playback.is_available = player.is_available();
+
+            match state {
+                PlaybackState::Playing => {
+                    self.state.history.audio_playback.is_playing = true;
+                    self.state.history.audio_playback.is_paused = false;
+                }
+                PlaybackState::Paused => {
+                    self.state.history.audio_playback.is_playing = false;
+                    self.state.history.audio_playback.is_paused = true;
+                }
+                PlaybackState::Stopped => {
+                    self.state.history.audio_playback.is_playing = false;
+                    self.state.history.audio_playback.is_paused = false;
+                }
             }
         }
     }

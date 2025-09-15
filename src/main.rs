@@ -1,3 +1,4 @@
+mod audio;
 mod logger;
 mod plotter;
 mod utils;
@@ -12,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use crossbeam_channel::bounded;
 use eframe::egui;
-use log::{error, info};
+use log::{error, info, warn};
 
 use types::{DataPoint, AudioData, DatabaseTask, SaveResult};
 use database::run_database_handler;
@@ -68,6 +69,40 @@ fn setup_custom_fonts(ctx: &egui::Context) {
 
     // 设置字体
     ctx.set_fonts(fonts);
+}
+
+fn load_icon() -> Option<egui::IconData> {
+    // 尝试加载应用图标
+    let icon_path = "src/images/icon.jpg";
+    
+    match std::fs::read(icon_path) {
+        Ok(icon_bytes) => {
+            match image::load_from_memory(&icon_bytes) {
+                Ok(image) => {
+                    // 将图像转换为 RGBA 格式
+                    let rgba_image = image.to_rgba8();
+                    let (width, height) = rgba_image.dimensions();
+                    
+                    let icon_data = egui::IconData {
+                        rgba: rgba_image.into_raw(),
+                        width: width as u32,
+                        height: height as u32,
+                    };
+                    
+                    info!("Successfully loaded application icon from {}", icon_path);
+                    Some(icon_data)
+                },
+                Err(e) => {
+                    warn!("Failed to decode icon image: {}", e);
+                    None
+                }
+            }
+        },
+        Err(e) => {
+            warn!("Failed to read icon file {}: {}", icon_path, e);
+            None
+        }
+    }
 }
 
 fn main() {
@@ -154,6 +189,11 @@ fn run_gui_application(
     let mut viewport_builder = egui::ViewportBuilder::default()
         .with_inner_size([config.window.width, config.window.height])
         .with_resizable(config.window.resizable);
+    
+    // 设置应用图标
+    if let Some(icon) = load_icon() {
+        viewport_builder = viewport_builder.with_icon(icon);
+    }
     
     // 如果配置了窗口位置，则设置位置
     if let (Some(x), Some(y)) = (config.window.x, config.window.y) {

@@ -336,24 +336,63 @@ impl DatabaseManager {
         Ok(sessions)
     }
 
-    // 获取未导出的session ID列表
-    pub fn get_unexported_sessions(&self) -> DuckResult<Vec<String>> {
-        let all_sessions = self.get_all_sessions()?;
-        let mut unexported_sessions = Vec::new();
+    // 获取所有session及其导出状态（优化版本）
+    pub fn get_all_sessions_with_export_status(&self) -> DuckResult<Vec<(String, bool)>> {
+        let mut sessions_with_status = Vec::new();
         
-        for session_id in all_sessions {
-            match self.is_session_exported(&session_id) {
-                Ok(false) => unexported_sessions.push(session_id),
-                Ok(true) => {
-                    info!("Session {} already exported, skipping", session_id);
-                }
-                Err(e) => {
-                    warn!("Failed to check export status for session {}: {}", session_id, e);
-                    // 如果检查失败，仍然包含该session
-                    unexported_sessions.push(session_id);
-                }
-            }
+        // 使用单个查询获取所有session及其用户名和场景信息
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT 
+                a.session_id,
+                COALESCE(NULLIF(a.username, ''), 'unknown_user') as username,
+                COALESCE(NULLIF(a.scenario, ''), 'standard') as scenario
+             FROM accelerometer_data a
+             UNION
+             SELECT DISTINCT 
+                a.session_id,
+                COALESCE(NULLIF(a.username, ''), 'unknown_user') as username,
+                COALESCE(NULLIF(a.scenario, ''), 'standard') as scenario
+             FROM audio_data ad
+             JOIN accelerometer_data a ON ad.session_id = a.session_id
+             ORDER BY session_id DESC"
+        )?;
+        
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,  // session_id
+                row.get::<_, String>(1)?,  // username
+                row.get::<_, String>(2)?,  // scenario
+            ))
+        })?;
+        
+        for row in rows {
+            let (session_id, username, scenario) = row?;
+            
+            // 构建文件路径并检查是否存在
+            let file_path = format!("data_export/{}/{}/{}.csv", username, scenario, session_id);
+            let is_exported = std::path::Path::new(&file_path).exists();
+            
+            sessions_with_status.push((session_id, is_exported));
         }
+        
+        Ok(sessions_with_status)
+    }
+
+    // 获取未导出的session ID列表（优化版本）
+    pub fn get_unexported_sessions(&self) -> DuckResult<Vec<String>> {
+        let sessions_with_status = self.get_all_sessions_with_export_status()?;
+        
+        let unexported_sessions: Vec<String> = sessions_with_status
+            .into_iter()
+            .filter_map(|(session_id, is_exported)| {
+                if !is_exported {
+                    Some(session_id)
+                } else {
+                    info!("Session {} already exported, skipping", session_id);
+                    None
+                }
+            })
+            .collect();
         
         Ok(unexported_sessions)
     }

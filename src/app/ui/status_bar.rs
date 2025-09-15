@@ -57,7 +57,7 @@ pub fn render_status_bar(app: &mut SensorDataApp, ctx: &egui::Context) {
                 }
 
                 ui.separator();
-                ui.label("Window: 5.0s");
+                ui.label(format!("Window: {:.1}s", app.config.get_config().plot.window_duration_seconds));
 
                 ui.separator();
 
@@ -94,9 +94,10 @@ fn render_status_details(app: &SensorDataApp, ui: &mut egui::Ui) {
     if app.state.calibration.is_calibrating {
         if let Some(start_time) = app.state.calibration.calibration_start_time {
             let elapsed = start_time.elapsed().as_secs_f64();
-            let progress = (elapsed / 5.0).min(1.0);
-            ui.label(format!("auto calibrating... {:.1}s / 5.0s ({} samples)",
-                             elapsed, app.state.calibration.calibration_data.len()));
+            let calibration_duration = app.config.get_config().calibration.duration_seconds;
+            let progress = (elapsed / calibration_duration).min(1.0);
+            ui.label(format!("auto calibrating... {:.1}s / {:.1}s ({} samples)",
+                             elapsed, calibration_duration, app.state.calibration.calibration_data.len()));
 
             // 进度条
             let progress_bar = egui::ProgressBar::new(progress as f32)

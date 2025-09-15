@@ -57,9 +57,10 @@ pub struct ExportState {
     pub export_status: String,
     pub show_export_dialog: bool,
     pub available_sessions: Vec<String>,
+    pub sessions_with_export_status: Vec<(String, bool)>, // (session_id, is_exported)
     pub selected_sessions: HashSet<String>,
     pub export_result_receiver: Option<crossbeam_channel::Receiver<ExportResult>>,
-    pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
+    pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<(String, bool)>>>,
 }
 
 /// 历史数据显示选项
@@ -84,6 +85,26 @@ impl Default for HistoryDisplayOptions {
             show_gy_axis: false,
             show_gz_axis: false,
             show_audio: true,
+        }
+    }
+}
+
+/// 音频播放状态
+#[derive(Debug, Clone)]
+pub struct AudioPlaybackState {
+    pub is_available: bool,
+    pub is_playing: bool,
+    pub is_paused: bool,
+    pub sample_rate: f32,
+}
+
+impl Default for AudioPlaybackState {
+    fn default() -> Self {
+        Self {
+            is_available: false,
+            is_playing: false,
+            is_paused: false,
+            sample_rate: 16000.0,
         }
     }
 }
@@ -114,6 +135,7 @@ pub struct HistoryVisualizationState {
     pub delete_result_receiver: Option<crossbeam_channel::Receiver<Result<(), String>>>,
     pub show_delete_confirmation: bool,
     pub session_to_delete: Option<String>,
+    pub audio_playback: AudioPlaybackState,
 }
 
 impl Default for ExportState {
@@ -122,6 +144,7 @@ impl Default for ExportState {
             export_status: String::new(),
             show_export_dialog: false,
             available_sessions: Vec::new(),
+            sessions_with_export_status: Vec::new(),
             selected_sessions: HashSet::new(),
             export_result_receiver: None,
             sessions_result_receiver: None,
@@ -155,6 +178,7 @@ impl Default for HistoryVisualizationState {
             delete_result_receiver: None,
             show_delete_confirmation: false,
             session_to_delete: None,
+            audio_playback: AudioPlaybackState::default(),
         }
     }
 }

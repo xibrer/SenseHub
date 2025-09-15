@@ -21,6 +21,9 @@ crossbeam-channel = "0.5"
 dotenv = "0.15"
 thiserror = "1.0"
 base64 = "0.21"
-
 duckdb = { version = "1.3.2", features = ["bundled"] }
 toml = "0.9.5"
+# 音频播放相关依赖
+rodio = "0.21.1"
+# 图像处理依赖
+image = "0.24"
