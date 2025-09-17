@@ -430,6 +430,7 @@ impl AppState {
                 if current_index > 0 {
                     let previous_session = self.history.history_sessions[current_index - 1].clone();
                     self.history.selected_session = Some(previous_session.clone());
+                    self.history.current_session_index = current_index - 1;
                     return Some(previous_session);
                 }
             }
@@ -444,6 +445,7 @@ impl AppState {
                 if current_index + 1 < self.history.history_sessions.len() {
                     let next_session = self.history.history_sessions[current_index + 1].clone();
                     self.history.selected_session = Some(next_session.clone());
+                    self.history.current_session_index = current_index + 1;
                     return Some(next_session);
                 }
             }

@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::app::sensor_app::SensorDataApp;
+use crate::app::app_core::SensorDataApp;
 use crate::app::handlers::ExportHandler;
 
 pub fn render_export_dialog(app: &mut SensorDataApp, ctx: &egui::Context) {

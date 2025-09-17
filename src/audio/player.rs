@@ -2,7 +2,6 @@ use rodio::{OutputStreamBuilder, Sink, Source};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use std::io::Cursor;
 
 /// 音频播放器状态
 #[derive(Debug, Clone, PartialEq)]

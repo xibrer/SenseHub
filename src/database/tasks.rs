@@ -1,7 +1,7 @@
 use std::io::Write;
 use log::info;
 
-use crate::types::{DataPoint, AudioData};
+use crate::types::DataPoint;
 use super::manager::DatabaseManager;
 
 /// 内部导出函数（在数据库线程中运行）

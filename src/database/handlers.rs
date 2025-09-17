@@ -75,6 +75,12 @@ pub fn run_database_handler(
                             warn!("Database handler: Failed to send scenarios: {}", e);
                         }
                     }
+                    DatabaseTask::GetScenariosByUsername { username, response_sender } => {
+                        let scenarios = db_manager.get_scenarios_by_username(&username).unwrap_or_default();
+                        if let Err(e) = response_sender.try_send(scenarios) {
+                            warn!("Database handler: Failed to send scenarios by username: {}", e);
+                        }
+                    }
                     DatabaseTask::GetSessionsByUsername { username, response_sender } => {
                         let sessions = db_manager.get_sessions_by_username(&username).unwrap_or_default();
                         if let Err(e) = response_sender.try_send(sessions) {

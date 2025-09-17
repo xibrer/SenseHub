@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::app::sensor_app::SensorDataApp;
+use crate::app::app_core::SensorDataApp;
 
 pub fn render_main_panel(app: &mut SensorDataApp, ctx: &egui::Context) {
     egui::CentralPanel::default().show(ctx, |ui| {

@@ -3,6 +3,7 @@ use std::fs;
 use log::{info, error, warn};
 use crate::{DataPoint, AudioData};
 use chrono::Utc;
+use super::schema::DatabaseSchema;
 
 pub struct DatabaseManager {
     conn: Connection,
@@ -21,197 +22,11 @@ impl DatabaseManager {
         info!("Database connection established at: {}", db_path);
         
         let manager = DatabaseManager { conn };
-        manager.create_tables()?;
-        
+        DatabaseSchema::create_tables_and_migrate(&manager.conn)?;
+
         Ok(manager)
     }
 
-    fn create_tables(&self) -> DuckResult<()> {
-        // 首先创建所有基础表，然后再执行迁移
-        
-        // 创建加速度数据表
-        self.conn.execute(
-            "CREATE SEQUENCE IF NOT EXISTS accelerometer_data_seq",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS accelerometer_data (
-                id INTEGER PRIMARY KEY DEFAULT nextval('accelerometer_data_seq'),
-                timestamp_ms BIGINT,
-                x DOUBLE,
-                y DOUBLE,
-                z DOUBLE,
-                session_id VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-            [],
-        )?;
-
-        // 创建音频数据表
-        self.conn.execute(
-            "CREATE SEQUENCE IF NOT EXISTS audio_data_seq",
-            [],
-        )?;
-        
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS audio_data (
-                id INTEGER PRIMARY KEY DEFAULT nextval('audio_data_seq'),
-                start_timestamp_ms BIGINT,
-                end_timestamp_ms BIGINT,
-                sample_rate INTEGER,
-                channels TINYINT,
-                format VARCHAR,
-                samples_count INTEGER,
-                audio_blob BLOB,
-                session_id VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )",
-            [],
-        )?;
-
-        info!("Basic database tables created successfully");
-
-        // 现在执行迁移，添加缺失的列
-        self.migrate_accelerometer_table()?;
-        self.migrate_username_columns()?;
-        self.migrate_scenario_column()?;
-
-        info!("Database migration completed successfully");
-        Ok(())
-    }
-
-    fn migrate_accelerometer_table(&self) -> DuckResult<()> {
-        // 检查是否需要添加陀螺仪列
-        let has_gyro_columns = self.check_gyro_columns_exist()?;
-        
-        if !has_gyro_columns {
-            info!("Adding gyroscope columns to accelerometer_data table");
-            
-            // 添加陀螺仪列
-            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gx DOUBLE DEFAULT 0.0", [])?;
-            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gy DOUBLE DEFAULT 0.0", [])?;
-            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN gz DOUBLE DEFAULT 0.0", [])?;
-            
-            info!("Successfully added gyroscope columns");
-        } else {
-            info!("Gyroscope columns already exist in accelerometer_data table");
-        }
-        
-        Ok(())
-    }
-
-    fn check_gyro_columns_exist(&self) -> DuckResult<bool> {
-        // 尝试查询陀螺仪列，如果出错说明列不存在
-        let result = self.conn.execute("SELECT gx, gy, gz FROM accelerometer_data LIMIT 1", []);
-        
-        match result {
-            Ok(_) => {
-                info!("Gyroscope columns found in database");
-                Ok(true)
-            },
-            Err(_) => {
-                info!("Gyroscope columns not found in database");
-                Ok(false)
-            }
-        }
-    }
-
-    fn migrate_username_columns(&self) -> DuckResult<()> {
-        // 检查加速度数据表是否需要添加用户名列
-        let acc_has_username = self.check_username_column_exists("accelerometer_data")?;
-        
-        if !acc_has_username {
-            info!("Adding username column to accelerometer_data table");
-            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN username VARCHAR DEFAULT ''", [])?;
-            info!("Successfully added username column to accelerometer_data table");
-        } else {
-            info!("Username column already exists in accelerometer_data table");
-        }
-
-        // 检查音频数据表是否需要添加用户名列
-        let audio_has_username = self.check_username_column_exists("audio_data")?;
-        
-        if !audio_has_username {
-            info!("Adding username column to audio_data table");
-            self.conn.execute("ALTER TABLE audio_data ADD COLUMN username VARCHAR DEFAULT ''", [])?;
-            info!("Successfully added username column to audio_data table");
-        } else {
-            info!("Username column already exists in audio_data table");
-        }
-        
-        Ok(())
-    }
-
-    fn check_username_column_exists(&self, table_name: &str) -> DuckResult<bool> {
-        // 首先检查表是否存在
-        let table_exists_query = format!(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = '{}'", 
-            table_name
-        );
-        
-        let table_exists = match self.conn.query_row(&table_exists_query, [], |row| {
-            Ok(row.get::<_, i64>(0)? > 0)
-        }) {
-            Ok(exists) => exists,
-            Err(_) => {
-                // 如果无法查询信息架构，尝试直接查询表
-                let test_query = format!("SELECT COUNT(*) FROM {} LIMIT 1", table_name);
-                self.conn.execute(&test_query, []).is_ok()
-            }
-        };
-        
-        if !table_exists {
-            info!("Table {} does not exist, username column does not exist", table_name);
-            return Ok(false);
-        }
-        
-        // 表存在，检查username列是否存在
-        let query = format!("SELECT username FROM {} LIMIT 1", table_name);
-        let result = self.conn.execute(&query, []);
-        
-        match result {
-            Ok(_) => {
-                info!("Username column found in {} table", table_name);
-                Ok(true)
-            },
-            Err(_) => {
-                info!("Username column not found in {} table", table_name);
-                Ok(false)
-            }
-        }
-    }
-
-    fn migrate_scenario_column(&self) -> DuckResult<()> {
-        // 检查加速度数据表是否需要添加场景列
-        let has_scenario = self.check_scenario_column_exists()?;
-        
-        if !has_scenario {
-            info!("Adding scenario column to accelerometer_data table");
-            self.conn.execute("ALTER TABLE accelerometer_data ADD COLUMN scenario VARCHAR DEFAULT 'standard'", [])?;
-            info!("Successfully added scenario column to accelerometer_data table");
-        } else {
-            info!("Scenario column already exists in accelerometer_data table");
-        }
-        
-        Ok(())
-    }
-
-    fn check_scenario_column_exists(&self) -> DuckResult<bool> {
-        // 尝试查询场景列，如果出错说明列不存在
-        let result = self.conn.execute("SELECT scenario FROM accelerometer_data LIMIT 1", []);
-        
-        match result {
-            Ok(_) => {
-                info!("Scenario column found in accelerometer_data table");
-                Ok(true)
-            },
-            Err(_) => {
-                info!("Scenario column not found in accelerometer_data table");
-                Ok(false)
-            }
-        }
-    }
 
     pub fn save_accelerometer_data(&self, data: &[DataPoint], session_id: &str, username: &str, scenario: &str) -> DuckResult<usize> {
         if data.is_empty() {
@@ -462,6 +277,63 @@ impl DatabaseManager {
         scenarios_vec.sort();
         
         // 如果没有scenario，添加默认scenario
+        if scenarios_vec.is_empty() {
+            scenarios_vec.push("standard".to_string());
+        }
+        
+        Ok(scenarios_vec)
+    }
+
+    // 获取指定用户的scenarios列表
+    pub fn get_scenarios_by_username(&self, username: &str) -> DuckResult<Vec<String>> {
+        let mut scenarios = std::collections::HashSet::new();
+        
+        if username == "unknown_user" {
+            // 对于unknown_user，查找username为空或NULL的记录
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT 
+                    CASE 
+                        WHEN scenario IS NULL OR scenario = '' THEN 'standard'
+                        ELSE scenario 
+                    END as effective_scenario
+                 FROM accelerometer_data 
+                 WHERE username IS NULL OR username = ''
+                 ORDER BY effective_scenario"
+            )?;
+            
+            let rows = stmt.query_map([], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                scenarios.insert(row?);
+            }
+        } else {
+            // 对于指定用户，查找该用户的记录
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT 
+                    CASE 
+                        WHEN scenario IS NULL OR scenario = '' THEN 'standard'
+                        ELSE scenario 
+                    END as effective_scenario
+                 FROM accelerometer_data 
+                 WHERE username = ?
+                 ORDER BY effective_scenario"
+            )?;
+            
+            let rows = stmt.query_map([username], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                scenarios.insert(row?);
+            }
+        }
+        
+        let mut scenarios_vec: Vec<String> = scenarios.into_iter().collect();
+        scenarios_vec.sort();
+        
+        // 如果没有找到任何scenario，默认添加standard
         if scenarios_vec.is_empty() {
             scenarios_vec.push("standard".to_string());
         }

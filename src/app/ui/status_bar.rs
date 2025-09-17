@@ -1,5 +1,5 @@
 use eframe::egui;
-use crate::app::sensor_app::SensorDataApp;
+use crate::app::app_core::SensorDataApp;
 
 pub fn render_status_bar(app: &mut SensorDataApp, ctx: &egui::Context) {
     egui::TopBottomPanel::top("status_bar")
@@ -102,7 +102,7 @@ pub fn render_status_bar(app: &mut SensorDataApp, ctx: &egui::Context) {
                         
                         // 当显示历史面板时，自动刷新用户列表
                         if app.state.history.show_history_panel {
-                            crate::app::ui::history_panel::refresh_history_sessions(app);
+                            crate::app::ui::history_controls::refresh_history_sessions(app);
                         }
                     }
 

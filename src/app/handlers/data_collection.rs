@@ -1,5 +1,5 @@
 use base64::{Engine as _, engine::general_purpose};
-use crate::app::sensor_app::SensorDataApp;
+use crate::app::app_core::SensorDataApp;
 
 pub struct DataCollectionHandler;
 

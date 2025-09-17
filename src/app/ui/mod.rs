@@ -2,6 +2,7 @@ pub mod status_bar;
 pub mod export_dialog;
 pub mod main_panel;
 pub mod history_panel;
+pub mod history_controls;
 
 pub use status_bar::{render_status_bar, render_bottom_status_bar};
 pub use export_dialog::render_export_dialog;
