@@ -68,6 +68,28 @@ pub fn render_status_bar(app: &mut SensorDataApp, ctx: &egui::Context) {
                         app.state.export.show_export_dialog = true;
                     }
 
+                    // 自动保存按钮
+                    let auto_save_button_text = if app.state.collection.auto_save_enabled {
+                        "⏱ Auto-Save: ON"
+                    } else {
+                        "⏱ Auto-Save: OFF"
+                    };
+                    
+                    // 创建一个真正的按钮，带有背景色
+                    let button = if app.state.collection.auto_save_enabled {
+                        egui::Button::new(auto_save_button_text)
+                            .fill(egui::Color32::from_rgb(100, 180, 100)) // 浅绿色背景
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(80, 160, 80))) // 深一点的绿色边框
+                    } else {
+                        egui::Button::new(auto_save_button_text)
+                            .fill(egui::Color32::from_rgb(180, 180, 180)) // 浅灰色背景
+                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(140, 140, 140))) // 深一点的灰色边框
+                    };
+
+                    if ui.add(button).clicked() {
+                        app.toggle_auto_save();
+                    }
+
                     // 历史面板切换按钮
                     let history_button_text = if app.state.history.show_history_panel {
                         "📊 Hide History"
@@ -108,6 +130,20 @@ fn render_status_details(app: &SensorDataApp, ui: &mut egui::Ui) {
         }
     } else if app.state.collection.is_collecting {
         ui.label("data collecting...");
+        
+        // 显示自动保存状态
+        if app.state.collection.auto_save_enabled {
+            ui.separator();
+            if let Some(last_time) = app.state.collection.auto_save_last_time {
+                let elapsed = last_time.elapsed().as_millis() as u64;
+                let remaining = app.state.collection.auto_save_interval_ms.saturating_sub(elapsed);
+                ui.label(format!("Next auto-save: {:.1}s (Count: {})", 
+                    remaining as f64 / 1000.0, 
+                    app.state.collection.auto_save_count));
+            } else {
+                ui.label(format!("Auto-save ready (Count: {})", app.state.collection.auto_save_count));
+            }
+        }
     } else {
         ui.label("waiting for data...");
     }

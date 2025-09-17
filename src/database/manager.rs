@@ -434,6 +434,41 @@ impl DatabaseManager {
         Ok(usernames)
     }
 
+    // 获取所有scenarios列表
+    pub fn get_all_scenarios(&self) -> DuckResult<Vec<String>> {
+        let mut scenarios = std::collections::HashSet::new();
+        
+        // 从加速度数据表查询所有不同的scenario
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT 
+                CASE 
+                    WHEN scenario IS NULL OR scenario = '' THEN 'standard'
+                    ELSE scenario 
+                END as effective_scenario
+             FROM accelerometer_data 
+             ORDER BY effective_scenario"
+        )?;
+        
+        let rows = stmt.query_map([], |row| {
+            Ok(row.get::<_, String>(0)?)
+        })?;
+        
+        for row in rows {
+            scenarios.insert(row?);
+        }
+        
+        // 转换为排序的向量
+        let mut scenarios_vec: Vec<String> = scenarios.into_iter().collect();
+        scenarios_vec.sort();
+        
+        // 如果没有scenario，添加默认scenario
+        if scenarios_vec.is_empty() {
+            scenarios_vec.push("standard".to_string());
+        }
+        
+        Ok(scenarios_vec)
+    }
+
     // 获取指定用户的session列表
     pub fn get_sessions_by_username(&self, username: &str) -> DuckResult<Vec<String>> {
         let mut sessions = Vec::new();
@@ -470,6 +505,46 @@ impl DatabaseManager {
             )?;
             
             let rows = stmt.query_map([username, username], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                sessions.push(row?);
+            }
+        }
+        
+        Ok(sessions)
+    }
+
+    // 获取指定用户和scenario的session列表
+    pub fn get_sessions_by_username_and_scenario(&self, username: &str, scenario: &str) -> DuckResult<Vec<String>> {
+        let mut sessions = Vec::new();
+        
+        // 根据用户名和scenario查询sessions
+        if username == "unknown_user" {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT session_id FROM accelerometer_data 
+                 WHERE (username IS NULL OR username = '') 
+                 AND (scenario IS NULL OR scenario = '' OR scenario = ?)
+                 ORDER BY session_id DESC"
+            )?;
+            
+            let rows = stmt.query_map([scenario], |row| {
+                Ok(row.get::<_, String>(0)?)
+            })?;
+            
+            for row in rows {
+                sessions.push(row?);
+            }
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT session_id FROM accelerometer_data 
+                 WHERE username = ? 
+                 AND (scenario IS NULL OR scenario = '' OR scenario = ?)
+                 ORDER BY session_id DESC"
+            )?;
+            
+            let rows = stmt.query_map([username, scenario], |row| {
                 Ok(row.get::<_, String>(0)?)
             })?;
             

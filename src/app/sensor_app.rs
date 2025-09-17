@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use eframe::{egui, Frame};
 use log::{info, error, warn};
 
@@ -40,6 +40,10 @@ impl SensorDataApp {
 
         // 初始化会话ID
         state.collection.current_session_id = generate_session_id();
+        
+        // 初始化自动保存间隔为窗口长度
+        let plot_config = config.get_config();
+        state.collection.auto_save_interval_ms = (plot_config.plot.window_duration_seconds * 1000.0) as u64;
 
         // 初始化音频播放器
         let audio_player = match AudioPlayer::new() {
@@ -163,7 +167,42 @@ impl SensorDataApp {
                 self.state.history.available_usernames = usernames;
                 self.state.history.loading_status = format!("Found {} users", self.state.history.available_usernames.len());
                 self.state.history.usernames_result_receiver = None; // Clear receiver
+                
+                // 自动选择第一个用户（如果列表不为空且当前没有选择）
+                if !self.state.history.available_usernames.is_empty() && self.state.history.selected_username.is_none() {
+                    let first_username = self.state.history.available_usernames[0].clone();
+                    self.state.history.selected_username = Some(first_username.clone());
+                    info!("Auto-selected first username: {}", first_username);
+                    
+                    // 如果scenario也已经选择，则加载sessions
+                    if self.state.history.selected_scenario.is_some() {
+                        crate::app::ui::history_panel::load_sessions_for_username_from_main(self, &first_username);
+                    }
+                }
+                
                 info!("Refreshed usernames: found {}", self.state.history.available_usernames.len());
+            }
+        }
+
+        // Handle scenarios list results
+        if let Some(receiver) = &self.state.history.scenarios_result_receiver {
+            if let Ok(scenarios) = receiver.try_recv() {
+                self.state.history.available_scenarios = scenarios;
+                self.state.history.scenarios_result_receiver = None; // Clear receiver
+                
+                // 自动选择第一个scenario（如果列表不为空且当前没有选择）
+                if !self.state.history.available_scenarios.is_empty() && self.state.history.selected_scenario.is_none() {
+                    let first_scenario = self.state.history.available_scenarios[0].clone();
+                    self.state.history.selected_scenario = Some(first_scenario.clone());
+                    info!("Auto-selected first scenario: {}", first_scenario);
+                    
+                    // 如果用户名也已经选择，则加载sessions
+                    if let Some(username) = self.state.history.selected_username.clone() {
+                        crate::app::ui::history_panel::load_sessions_for_username_from_main(self, &username);
+                    }
+                }
+                
+                info!("Refreshed scenarios: found {}", self.state.history.available_scenarios.len());
             }
         }
 
@@ -173,6 +212,18 @@ impl SensorDataApp {
                 self.state.history.history_sessions = sessions;
                 self.state.history.loading_status = format!("Found {} history sessions for selected user", self.state.history.history_sessions.len());
                 self.state.history.sessions_result_receiver = None; // Clear receiver
+                
+                // 自动选择第一个session（如果列表不为空且当前没有选择）
+                if !self.state.history.history_sessions.is_empty() && self.state.history.selected_session.is_none() {
+                    let first_session = self.state.history.history_sessions[0].clone();
+                    self.state.history.selected_session = Some(first_session.clone());
+                    self.state.history.current_session_index = 0;
+                    info!("Auto-selected first session: {}", first_session);
+                    
+                    // 自动加载第一个session的数据
+                    crate::app::ui::history_panel::load_both_data_types_from_main(self, &first_session);
+                }
+                
                 info!("Refreshed history sessions for user: found {} sessions", self.state.history.history_sessions.len());
             }
         }
@@ -282,6 +333,9 @@ impl SensorDataApp {
             } else {
                 // 正常采集状态：处理数据
                 crate::app::handlers::DataCollectionHandler::handle_collection(self);
+                
+                // 检查是否需要自动保存
+                self.check_auto_save();
             }
         } else {
             // 停止状态：清空接收缓冲区
@@ -456,6 +510,50 @@ impl SensorDataApp {
                     self.state.history.audio_playback.is_paused = false;
                 }
             }
+        }
+    }
+
+    /// 检查是否需要自动保存
+    fn check_auto_save(&mut self) {
+        if !self.state.collection.auto_save_enabled {
+            return;
+        }
+
+        let now = Instant::now();
+        
+        // 初始化自动保存时间
+        if self.state.collection.auto_save_last_time.is_none() {
+            self.state.collection.auto_save_last_time = Some(now);
+            return;
+        }
+        
+        let last_save_time = self.state.collection.auto_save_last_time.unwrap();
+        let elapsed = now.duration_since(last_save_time);
+        let interval_duration = Duration::from_millis(self.state.collection.auto_save_interval_ms);
+        
+        // 检查是否到了保存时间
+        if elapsed >= interval_duration {
+            // 执行自动保存
+            self.save_current_window_data_async();
+            self.state.collection.auto_save_count += 1;
+            self.state.collection.auto_save_last_time = Some(now);
+            
+            info!("Auto-save triggered (count: {})", self.state.collection.auto_save_count);
+        }
+    }
+
+    /// 启用/禁用自动保存
+    pub fn toggle_auto_save(&mut self) {
+        self.state.collection.auto_save_enabled = !self.state.collection.auto_save_enabled;
+        
+        if self.state.collection.auto_save_enabled {
+            // 启用时重置计时器
+            self.state.collection.auto_save_last_time = Some(Instant::now());
+            self.state.collection.auto_save_count = 0;
+            info!("Auto-save enabled with interval: {}ms", self.state.collection.auto_save_interval_ms);
+        } else {
+            self.state.collection.auto_save_last_time = None;
+            info!("Auto-save disabled");
         }
     }
 }

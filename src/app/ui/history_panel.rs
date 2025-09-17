@@ -3,35 +3,27 @@ use egui_plot::{Line, Plot, PlotPoints};
 use egui::Color32;
 use crate::app::sensor_app::SensorDataApp;
 use crate::types::DataPoint;
+use log::warn;
 
 /// 格式化数字为固定宽度的 y 轴标签
 fn format_fixed_width_y_label(value: f64) -> String {
-    // 使用固定6字符宽度的格式
-    if value == 0.0 {
-        return " 0.00 ".to_string();
-    }
-
     let abs_value = value.abs();
-
-    // 根据数值大小选择合适的格式，但保持固定宽度
+    // 根据数值大小和正负选择格式，全部固定为6字符宽度，并显式显示符号
     if abs_value >= 1000.0 {
-        // 大于等于1000：使用科学计数法，固定宽度
-        format!("{:6.1e}", value)
+        // 极大或极小值：使用科学计数法，保留1位小数，总宽6位，强制显示符号
+        format!("{:-6.1e}", value)
     } else if abs_value >= 100.0 {
-        // 100-999：整数格式，右对齐6字符宽度
-        format!("{:6.0}", value)
+        // 100-999：格式化为整数，总宽6位，强制显示符号（右对齐）
+        format!("{:-6.0}", value)
     } else if abs_value >= 10.0 {
-        // 10-99.9：一位小数，右对齐6字符宽度
-        format!("{:6.1}", value)
+        // 10-99.9：保留1位小数，总宽6位，强制显示符号
+        format!("{:-6.1}", value)
     } else if abs_value >= 1.0 {
-        // 1-9.99：两位小数，右对齐6字符宽度
-        format!("{:6.2}", value)
-    } else if abs_value >= 0.01 {
-        // 0.01-0.999：三位小数，右对齐6字符宽度
-        format!("{:6.3}", value)
+        // 1-9.99：保留2位小数，总宽6位，强制显示符号
+        format!("{:-6.2}", value)
     } else {
-        // 小于0.01：使用科学计数法，固定宽度
-        format!("{:6.1e}", value)
+        // 0.001-0.999：保留3位小数，总宽6位，强制显示符号
+        format!("{:-6.2}", value)
     }
 }
 
@@ -96,8 +88,9 @@ fn render_panel_controls(app: &mut SensorDataApp, ui: &mut egui::Ui) {
 }
 
 fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
-    // First level: Username selection
+    // First level: Username and Scenario selection
     ui.horizontal(|ui| {
+        // Username selection
         ui.label("User:");
         
         let selected_username_text = app.state.history.selected_username
@@ -124,6 +117,38 @@ fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
                     }
                 }
             });
+
+        ui.add_space(10.0);
+
+        // Scenario selection
+        ui.label("Scenario:");
+        
+        let selected_scenario_text = app.state.history.selected_scenario
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("Select scenario...");
+
+        egui::ComboBox::from_id_salt("scenario_selector")
+            .selected_text(selected_scenario_text)
+            .show_ui(ui, |ui| {
+                for scenario in &app.state.history.available_scenarios.clone() {
+                    let response = ui.selectable_value(
+                        &mut app.state.history.selected_scenario,
+                        Some(scenario.clone()),
+                        scenario
+                    );
+
+                    if response.clicked() {
+                        // Reset session selection when scenario changes
+                        app.state.history.selected_session = None;
+                        app.state.history.history_sessions.clear();
+                        // Load sessions for the selected username and scenario
+                        if let Some(username) = app.state.history.selected_username.clone() {
+                            load_sessions_for_username(app, &username);
+                        }
+                    }
+                }
+            });
     });
 
     ui.add_space(5.0);
@@ -138,34 +163,38 @@ fn render_session_selector(app: &mut SensorDataApp, ui: &mut egui::Ui) {
             if app.state.history.history_sessions.is_empty() {
                 ui.label(format!("Loading sessions for {}...", username));
             } else {
-                let selected_session_text = app.state.history.selected_session
-                    .as_ref()
-                    .map(|s| s.as_str())
-                    .unwrap_or("Select session...");
-
-                egui::ComboBox::from_id_salt("session_selector")
-                    .selected_text(selected_session_text)
-                    .show_ui(ui, |ui| {
-                        for session in &app.state.history.history_sessions.clone() {
-                            let response = ui.selectable_value(
-                                &mut app.state.history.selected_session,
-                                Some(session.clone()),
-                                session
-                            );
-
-                            if response.clicked() {
-                                load_both_data_types(app, session);
-                            }
+                // 显示当前session信息和导航按钮
+                ui.horizontal(|ui| {
+                    // 上一个按钮
+                    if ui.button("◀").on_hover_text("Previous session").clicked() {
+                        if let Some(session) = app.state.previous_session() {
+                            load_both_data_types(app, &session);
                         }
-                    });
-
-                // 添加删除按钮
-                if let Some(selected_session) = &app.state.history.selected_session {
-                    if ui.button("🗑").on_hover_text("删除此session").clicked() {
-                        app.state.history.session_to_delete = Some(selected_session.clone());
-                        app.state.history.show_delete_confirmation = true;
                     }
-                }
+                    
+                    // 显示当前session信息
+                    let session_info = app.state.get_current_session_info();
+                    let current_session = app.state.history.selected_session
+                        .as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("None");
+                    ui.label(format!("{} ({})", current_session, session_info));
+                    
+                    // 下一个按钮
+                    if ui.button("▶").on_hover_text("Next session").clicked() {
+                        if let Some(session) = app.state.next_session() {
+                            load_both_data_types(app, &session);
+                        }
+                    }
+                    
+                    // 添加删除按钮
+                    if let Some(selected_session) = &app.state.history.selected_session {
+                        if ui.button("🗑").on_hover_text("删除此session").clicked() {
+                            app.state.history.session_to_delete = Some(selected_session.clone());
+                            app.state.history.show_delete_confirmation = true;
+                        }
+                    }
+                });
             }
         });
     } else {
@@ -425,26 +454,57 @@ fn render_history_audio_waveform(ui: &mut egui::Ui, title: &str, audio_data: &[f
 pub fn refresh_history_sessions(app: &mut SensorDataApp) {
     use crate::types::DatabaseTask;
 
-    app.state.history.loading_status = "Refreshing users list...".to_string();
+    // 检查是否已经有正在进行的用户名请求
+    if app.state.history.usernames_result_receiver.is_some() {
+        app.state.history.loading_status = "Already refreshing users list...".to_string();
+        return;
+    }
 
-    let (sender, receiver) = crossbeam_channel::unbounded();
-    let task = DatabaseTask::GetUsernames { response_sender: sender };
+    app.state.history.loading_status = "Refreshing users and scenarios list...".to_string();
 
-    if let Ok(()) = app.state.database.db_task_sender.try_send(task) {
-        app.state.history.usernames_result_receiver = Some(receiver);
+    // 发送用户名查询请求
+    let (usernames_sender, usernames_receiver) = crossbeam_channel::unbounded();
+    let usernames_task = DatabaseTask::GetUsernames { response_sender: usernames_sender };
+
+    if let Ok(()) = app.state.database.db_task_sender.try_send(usernames_task) {
+        app.state.history.usernames_result_receiver = Some(usernames_receiver);
     } else {
         app.state.history.loading_status = "Unable to send usernames query request".to_string();
+        return;
+    }
+
+    // 发送scenarios查询请求
+    let (scenarios_sender, scenarios_receiver) = crossbeam_channel::unbounded();
+    let scenarios_task = DatabaseTask::GetScenarios { response_sender: scenarios_sender };
+
+    if let Ok(()) = app.state.database.db_task_sender.try_send(scenarios_task) {
+        app.state.history.scenarios_result_receiver = Some(scenarios_receiver);
+    } else {
+        warn!("Unable to send scenarios query request");
     }
 }
 
 fn load_sessions_for_username(app: &mut SensorDataApp, username: &str) {
     use crate::types::DatabaseTask;
 
-    app.state.history.loading_status = format!("Loading sessions for user: {}", username);
+    // 检查是否已经有正在进行的会话请求
+    if app.state.history.sessions_result_receiver.is_some() {
+        app.state.history.loading_status = format!("Already loading sessions for user: {}", username);
+        return;
+    }
+
+    // 获取选中的scenario，如果没有选择则使用"standard"
+    let scenario = app.state.history.selected_scenario
+        .as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or("standard");
+
+    app.state.history.loading_status = format!("Loading sessions for user: {} in scenario: {}", username, scenario);
 
     let (sender, receiver) = crossbeam_channel::unbounded();
-    let task = DatabaseTask::GetSessionsByUsername { 
+    let task = DatabaseTask::GetSessionsByUsernameAndScenario { 
         username: username.to_string(),
+        scenario: scenario.to_string(),
         response_sender: sender 
     };
 
@@ -458,6 +518,12 @@ fn load_sessions_for_username(app: &mut SensorDataApp, username: &str) {
 // Helper function: load session data (using aligned data)
 fn load_session_data(app: &mut SensorDataApp, session_id: &str) {
     use crate::types::DatabaseTask;
+
+    // 检查是否已经有正在进行的对齐数据请求
+    if app.state.history.aligned_history_result_receiver.is_some() {
+        app.state.history.loading_status = format!("Already loading aligned session data: {}", session_id);
+        return;
+    }
 
     app.state.history.loading_status = format!("Loading aligned session data: {}", session_id);
 
@@ -475,6 +541,14 @@ fn load_session_data(app: &mut SensorDataApp, session_id: &str) {
 }
 
 // Helper function: load both original and aligned data
+pub fn load_both_data_types_from_main(app: &mut SensorDataApp, session_id: &str) {
+    load_both_data_types(app, session_id);
+}
+
+pub fn load_sessions_for_username_from_main(app: &mut SensorDataApp, username: &str) {
+    load_sessions_for_username(app, username);
+}
+
 fn load_both_data_types(app: &mut SensorDataApp, session_id: &str) {
     use crate::types::DatabaseTask;
 
@@ -547,6 +621,12 @@ fn switch_to_original_data(app: &mut SensorDataApp) {
 fn load_original_data(app: &mut SensorDataApp, session_id: &str) {
     use crate::types::DatabaseTask;
 
+    // 检查是否已经有正在进行的原始数据请求
+    if app.state.history.history_result_receiver.is_some() {
+        app.state.history.loading_status = format!("Already loading original session data: {}", session_id);
+        return;
+    }
+
     app.state.history.loading_status = format!("Loading original session data: {}", session_id);
 
     let (sender, receiver) = crossbeam_channel::unbounded();
@@ -599,6 +679,12 @@ fn render_delete_confirmation_dialog(app: &mut SensorDataApp, ctx: &egui::Contex
 // 删除选中的session
 fn delete_selected_session(app: &mut SensorDataApp, session_id: &str) {
     use crate::types::DatabaseTask;
+
+    // 检查是否已经有正在进行的删除请求
+    if app.state.history.delete_result_receiver.is_some() {
+        app.state.history.loading_status = format!("已经在删除session: {}", session_id);
+        return;
+    }
 
     app.state.history.loading_status = format!("正在删除session: {}", session_id);
 

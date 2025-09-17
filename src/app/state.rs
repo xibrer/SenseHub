@@ -16,6 +16,11 @@ pub struct CollectionState {
     pub save_status: String,
     pub username: String,
     pub scenario: String,
+    // 自动保存相关
+    pub auto_save_enabled: bool,
+    pub auto_save_last_time: Option<Instant>,
+    pub auto_save_interval_ms: u64,
+    pub auto_save_count: u32,
 }
 
 impl Default for CollectionState {
@@ -27,6 +32,11 @@ impl Default for CollectionState {
             save_status: String::new(),
             username: "test".to_string(),
             scenario: "standard".to_string(),
+            // 自动保存默认值
+            auto_save_enabled: false,
+            auto_save_last_time: None,
+            auto_save_interval_ms: 10000, // 默认10秒间隔，窗口长度配置
+            auto_save_count: 0,
         }
     }
 }
@@ -124,18 +134,25 @@ pub struct HistoryVisualizationState {
     pub display_options: HistoryDisplayOptions,
     pub loading_status: String,
     pub available_usernames: Vec<String>,
+    pub available_scenarios: Vec<String>,
+    pub selected_scenario: Option<String>,
     pub history_sessions: Vec<String>,
     pub history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>)>>,
     pub aligned_history_result_receiver: Option<crossbeam_channel::Receiver<(Vec<DataPoint>, Vec<f64>, i64)>>,
     pub common_time_range_ms: i64,
     pub sessions_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
     pub usernames_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
+    pub scenarios_result_receiver: Option<crossbeam_channel::Receiver<Vec<String>>>,
     pub panel_width: f32,
     pub show_aligned_data: bool,
     pub delete_result_receiver: Option<crossbeam_channel::Receiver<Result<(), String>>>,
     pub show_delete_confirmation: bool,
     pub session_to_delete: Option<String>,
     pub audio_playback: AudioPlaybackState,
+    // 缓存相关字段
+    pub usernames_cache: Option<Vec<String>>,
+    pub sessions_cache: std::collections::HashMap<String, Vec<String>>,
+    pub current_session_index: usize,
 }
 
 impl Default for ExportState {
@@ -167,18 +184,25 @@ impl Default for HistoryVisualizationState {
             display_options: HistoryDisplayOptions::default(),
             loading_status: String::new(),
             available_usernames: Vec::new(),
+            available_scenarios: Vec::new(),
+            selected_scenario: None,
             history_sessions: Vec::new(),
             history_result_receiver: None,
             aligned_history_result_receiver: None,
             common_time_range_ms: 0,
             sessions_result_receiver: None,
             usernames_result_receiver: None,
+            scenarios_result_receiver: None,
             panel_width: 300.0, // 默认侧边面板宽度
             show_aligned_data: true, // 默认显示对齐后的数据
             delete_result_receiver: None,
             show_delete_confirmation: false,
             session_to_delete: None,
             audio_playback: AudioPlaybackState::default(),
+            // 缓存相关字段
+            usernames_cache: None,
+            sessions_cache: std::collections::HashMap::new(),
+            current_session_index: 0,
         }
     }
 }
@@ -385,4 +409,46 @@ impl AppState {
         }
         format!("{}/{}", self.text_reader.current_line_index + 1, self.text_reader.lines.len())
     }
+
+    /// 获取当前session信息
+    pub fn get_current_session_info(&self) -> String {
+        if let Some(ref session) = self.history.selected_session {
+            if let Some(index) = self.history.history_sessions.iter().position(|s| s == session) {
+                format!("{}/{}", index + 1, self.history.history_sessions.len())
+            } else {
+                "1/1".to_string()
+            }
+        } else {
+            "No session selected".to_string()
+        }
+    }
+
+    /// 切换到上一个session
+    pub fn previous_session(&mut self) -> Option<String> {
+        if let Some(ref current_session) = self.history.selected_session {
+            if let Some(current_index) = self.history.history_sessions.iter().position(|s| s == current_session) {
+                if current_index > 0 {
+                    let previous_session = self.history.history_sessions[current_index - 1].clone();
+                    self.history.selected_session = Some(previous_session.clone());
+                    return Some(previous_session);
+                }
+            }
+        }
+        None
+    }
+
+    /// 切换到下一个session
+    pub fn next_session(&mut self) -> Option<String> {
+        if let Some(ref current_session) = self.history.selected_session {
+            if let Some(current_index) = self.history.history_sessions.iter().position(|s| s == current_session) {
+                if current_index + 1 < self.history.history_sessions.len() {
+                    let next_session = self.history.history_sessions[current_index + 1].clone();
+                    self.history.selected_session = Some(next_session.clone());
+                    return Some(next_session);
+                }
+            }
+        }
+        None
+    }
+
 }

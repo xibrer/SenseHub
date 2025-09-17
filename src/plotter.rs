@@ -4,33 +4,25 @@ use std::collections::VecDeque;
 use crate::config::PlotConfig;
 
 /// 格式化数字为固定宽度的 y 轴标签
+
 fn format_fixed_width_y_label(value: f64) -> String {
-    // 使用固定6字符宽度的格式
-    if value == 0.0 {
-        return " 0.00 ".to_string();
-    }
-
     let abs_value = value.abs();
-
-    // 根据数值大小选择合适的格式，但保持固定宽度
+    // 根据数值大小和正负选择格式，全部固定为6字符宽度，并显式显示符号
     if abs_value >= 1000.0 {
-        // 大于等于1000：使用科学计数法，固定宽度
-        format!("{:6.1e}", value)
+        // 极大或极小值：使用科学计数法，保留1位小数，总宽6位，强制显示符号
+        format!("{:-6.1e}", value)
     } else if abs_value >= 100.0 {
-        // 100-999：整数格式，右对齐6字符宽度
-        format!("{:6.0}", value)
+        // 100-999：格式化为整数，总宽6位，强制显示符号（右对齐）
+        format!("{:-6.0}", value)
     } else if abs_value >= 10.0 {
-        // 10-99.9：一位小数，右对齐6字符宽度
-        format!("{:6.1}", value)
+        // 10-99.9：保留1位小数，总宽6位，强制显示符号
+        format!("{:-6.1}", value)
     } else if abs_value >= 1.0 {
-        // 1-9.99：两位小数，右对齐6字符宽度
-        format!("{:6.2}", value)
-    } else if abs_value >= 0.01 {
-        // 0.01-0.999：三位小数，右对齐6字符宽度
-        format!("{:6.3}", value)
+        // 1-9.99：保留2位小数，总宽6位，强制显示符号
+        format!("{:-6.2}", value)
     } else {
-        // 小于0.01：使用科学计数法，固定宽度
-        format!("{:6.1e}", value)
+        // 0.001-0.999：保留3位小数，总宽6位，强制显示符号
+        format!("{:-6.2}", value)
     }
 }
 

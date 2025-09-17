@@ -74,6 +74,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         gyroscope = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
 
+        // 立即启动传感器，不等待MQTT连接
+        accelerometer?.let {
+            sensorManager.registerListener(this, it, 2500)
+        }
+        gyroscope?.let {
+            sensorManager.registerListener(this, it, 2500)
+        }
+
         // 检查音频录制权限
         checkAudioPermission()
 
@@ -127,13 +135,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun startSensorAfterConnection() {
         runOnUiThread {
-            accelerometer?.let {
-                sensorManager.registerListener(this, it, 2500)
-            }
-            gyroscope?.let {
-                sensorManager.registerListener(this, it, 2500)
-            }
-            // 只有在有录音权限时才开始音频录制
+            // 传感器已经在onCreate中启动，这里只需要启动音频录制
             if (hasAudioPermission()) {
                 startAudioRecording()
             }

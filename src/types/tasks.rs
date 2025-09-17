@@ -29,8 +29,16 @@ pub enum DatabaseTask {
     GetUsernames {
         response_sender: crossbeam_channel::Sender<Vec<String>>,
     },
+    GetScenarios {
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
     GetSessionsByUsername {
         username: String,
+        response_sender: crossbeam_channel::Sender<Vec<String>>,
+    },
+    GetSessionsByUsernameAndScenario {
+        username: String,
+        scenario: String,
         response_sender: crossbeam_channel::Sender<Vec<String>>,
     },
     CheckExported {

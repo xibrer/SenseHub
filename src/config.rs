@@ -187,7 +187,7 @@ impl Default for PlotColors {
 impl Default for CalibrationConfig {
     fn default() -> Self {
         Self {
-            duration_seconds: 5.0,
+            duration_seconds: 8.0,
             min_samples: 2,
             initial_sample_rate: 393,
             auto_start: true,
